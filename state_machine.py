@@ -84,7 +84,7 @@ class ExpenseStateMachine:
                 user_id=self.user_id,
                 salary_amount=tx.amount,
                 salary_credit_date=datetime.utcnow(),
-                opening_balance=0.0,
+                opening_balance=tx.amount,
                 status=CycleStatus.ACTIVE
             )
             self.db.add(new_cycle)
