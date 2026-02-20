@@ -110,9 +110,22 @@ if navigation == "💬 Chat":
         with st.chat_message("assistant"):
             history_context = df.to_json(orient="records") if not df.empty else "No transactions yet."
             
-            from database import Cycle
+            from database import Cycle, Transaction
             all_user_cycles = db.query(Cycle).filter(Cycle.user_id == st.session_state.user_id).order_by(Cycle.id.asc()).all()
-            past_cycles_context = "\n".join([f"Cycle {c.id}: Started {c.start_date.strftime('%Y-%m-%d')}, Salary ₹{c.salary_amount}, Total Spent ₹{c.total_expenses}, Status: {c.status.value}" for c in all_user_cycles if c.id != active_cycle.id])
+            
+            past_cycles_data = []
+            for c in all_user_cycles:
+                if c.id != active_cycle.id:
+                    txs = db.query(Transaction).filter(Transaction.cycle_id == c.id, Transaction.type == "EXPENSE").all()
+                    cat_spending = {}
+                    for tx in txs:
+                        cat = tx.category.capitalize() if tx.category else "Other"
+                        cat_spending[cat] = cat_spending.get(cat, 0.0) + tx.amount
+                    
+                    cat_str = ", ".join([f"{k}: ₹{v}" for k, v in cat_spending.items()]) if cat_spending else "None"
+                    past_cycles_data.append(f"Cycle {c.id}: Started {c.start_date.strftime('%Y-%m-%d')}, Salary ₹{c.salary_amount}, Total Spent ₹{c.total_expenses}, Categories ({cat_str}), Status: {c.status.value}")
+            
+            past_cycles_context = "\n".join(past_cycles_data)
             if not past_cycles_context:
                 past_cycles_context = "No past cycles available."
             
