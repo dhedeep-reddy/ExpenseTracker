@@ -110,10 +110,16 @@ if navigation == "💬 Chat":
         with st.chat_message("assistant"):
             history_context = df.to_json(orient="records") if not df.empty else "No transactions yet."
             
+            from database import Cycle
+            all_user_cycles = db.query(Cycle).filter(Cycle.user_id == st.session_state.user_id).order_by(Cycle.id.asc()).all()
+            past_cycles_context = "\n".join([f"Cycle {c.id}: Started {c.start_date.strftime('%Y-%m-%d')}, Salary ₹{c.salary_amount}, Total Spent ₹{c.total_expenses}, Status: {c.status.value}" for c in all_user_cycles if c.id != active_cycle.id])
+            if not past_cycles_context:
+                past_cycles_context = "No past cycles available."
+            
             budgets = db.query(CategoryBudget).filter(CategoryBudget.cycle_id == active_cycle.id).all()
             budget_context = "\n".join([f"Envelope '{b.category_name}': Allocated ₹{b.allocated_amount}, Spent ₹{b.spent_amount}, Remaining ₹{max(0, b.allocated_amount - b.spent_amount)}" for b in budgets]) if budgets else "No envelopes allocated."
             
-            full_context = f"TRANSACTIONS:\n{history_context}\n\nENVELOPES:\n{budget_context}"
+            full_context = f"PAST CYCLES SUMMARY:\n{past_cycles_context}\n\nCURRENT CYCLE TRANSACTIONS:\n{history_context}\n\nCURRENT ENVELOPES:\n{budget_context}"
             
             # Format the last 5 chat messages for context
             recent_msgs = st.session_state.messages[-6:-1] # excluding the one just added
