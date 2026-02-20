@@ -5,3 +5,4 @@ openai==1.63.2
 python-dotenv==1.0.1
 azure-ai-projects==1.0.0
 azure-identity==1.25.2
+Werkzeug
