@@ -11,9 +11,10 @@ from routes.chat import router as chat_router
 
 app = FastAPI(title="FinAI Expense Tracker API")
 
-# Allow the Vercel frontend URL (set FRONTEND_URL in Railway env vars)
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
-allowed_origins = list({FRONTEND_URL, "http://localhost:3000"})
+# CORS — reads comma-separated ALLOWED_ORIGINS, with Vercel URL baked in as default
+_default_origins = "http://localhost:3000,https://expense-tracker-rose-seven-62.vercel.app"
+ALLOWED_ORIGINS_STR = os.getenv("ALLOWED_ORIGINS", _default_origins)
+allowed_origins = [o.strip() for o in ALLOWED_ORIGINS_STR.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
