@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: finai-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    plan: free
+    envVars:
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: AZURE_OPENAI_ENDPOINT
+        sync: false
+      - key: AZURE_OPENAI_API_KEY
+        sync: false
+      - key: AZURE_OPENAI_DEPLOYMENT_NAME
+        value: gpt-4o
+      - key: OPENAI_API_VERSION
+        value: 2024-12-01-preview
+      - key: FRONTEND_URL
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: finai-db
+          property: connectionString
+
+databases:
+  - name: finai-db
+    plan: free
