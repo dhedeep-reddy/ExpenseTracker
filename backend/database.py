@@ -19,6 +19,7 @@ class TransactionType(str, Enum):
     CORRECTION = "CORRECTION"
     ALLOCATE_BUDGET = "ALLOCATE_BUDGET"
     DELETE = "DELETE"
+    DELETE_BUDGET = "DELETE_BUDGET"
 
 class TransactionSource(str, Enum):
     MAIN_BALANCE = "MAIN_BALANCE"
@@ -98,11 +99,15 @@ class Transaction(Base):
     cycle = relationship("Cycle", back_populates="transactions")
 
 # Database initialization
-engine = create_engine(
-    "sqlite:///expense_tracker.db", 
-    connect_args={"check_same_thread": False},
-    echo=False
-)
+import os
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///expense_tracker.db")
+
+# Railway provides postgres:// but SQLAlchemy needs postgresql://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, connect_args=connect_args, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():

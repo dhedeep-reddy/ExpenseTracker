@@ -89,13 +89,11 @@ export default function ChatPage() {
         ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
     }, [input]);
 
-    // Build chat history string for context
-    const buildHistory = useCallback((msgs: Message[]): string => {
-        if (msgs.length === 0) return 'No previous chat.';
+    // Build structured chat history for OpenAI conversation context
+    const buildHistory = useCallback((msgs: Message[]): { role: string; content: string }[] => {
         return msgs
-            .slice(-20) // last 20 messages for context window
-            .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
-            .join('\n');
+            .slice(-20)
+            .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
     }, []);
 
     const sendMessage = useCallback(async (text: string) => {
@@ -117,7 +115,7 @@ export default function ChatPage() {
         try {
             const res = await api.post('/chat/', {
                 message: trimmed,
-                chat_history: buildHistory(messages),
+                chat_history: buildHistory(messages), // array of {role, content}
             });
 
             const aiMsg: Message = {
@@ -235,8 +233,8 @@ export default function ChatPage() {
                                 <div className={`flex flex-col gap-1 max-w-[80%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                                     <div
                                         className={`px-4 py-3 rounded-2xl text-sm leading-relaxed ${msg.role === 'user'
-                                                ? 'bg-blue-600 text-white rounded-tr-sm shadow-md shadow-blue-200'
-                                                : 'bg-white text-slate-800 border border-slate-200 rounded-tl-sm shadow-sm'
+                                            ? 'bg-blue-600 text-white rounded-tr-sm shadow-md shadow-blue-200'
+                                            : 'bg-white text-slate-800 border border-slate-200 rounded-tl-sm shadow-sm'
                                             }`}
                                     >
                                         {msg.role === 'assistant'

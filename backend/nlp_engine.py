@@ -3,6 +3,8 @@ import json
 from openai import AzureOpenAI
 from schemas import NLPResponse
 from dotenv import load_dotenv
+from datetime import datetime
+from typing import List
 
 load_dotenv()
 
@@ -12,67 +14,73 @@ client = AzureOpenAI(
     api_version=os.getenv("OPENAI_API_VERSION", "2024-12-01-preview"),
 )
 
-from datetime import datetime
-
-def parse_user_input(user_input: str, data_context: str = "", chat_history: str = "") -> NLPResponse:
+def parse_user_input(
+    user_input: str,
+    data_context: str = "",
+    chat_history: List[dict] = None   # list of {role: "user"|"assistant", content: str}
+) -> NLPResponse:
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    system_prompt = f"""
-    You are an AI financial reasoning engine AND a friendly conversational buddy for a single-user expense tracker.
-    Your job is to parse natural language input into structured transactional data, but ALSO reply naturally and warmly to the user.
-    The system revolves around salary cycles.
-    
-    CURRENT SYSTEM TIME: {current_time}
-    (Use this exact time to resolve relative dates like "yesterday", "last week", etc. Always output `date` as an absolute ISO string YYYY-MM-DDTHH:MM:SS if a date is implied or mentioned).
-    
-    Here is the user's FINANCIAL CONTEXT (Transactions and Envelopes) in this cycle:
-    -----
-    {data_context}
-    -----
-    
-    Here is the RECENT CHAT HISTORY (for conversational context):
-    -----
-    {chat_history}
-    -----
-    
-    Extract the transactions. Types can be INCOME, EXPENSE, SALARY, CORRECTION, ALLOCATE_BUDGET, or DELETE.
-    - If the user explicitly mentions a transaction (e.g. "I spent 500 on food") log it immediately.
-    - **CRITICAL - IMPLICIT INTENT:** If the user implies an action based on the prior chat history (e.g. they say "yes update the salary" or "salary broo" or "yes 5000"), you MUST deduce what they mean from the `RECENT CHAT HISTORY`.
-    - **CROSS-CYCLE TARGETING:** If the user explicitly refers to a past cycle by number ("Cycle 7") or references modifying a past timeframe/transaction from the PAST CYCLES summary, you MUST extract its integer `cycle_id` into the JSON payload. If they don't mention a past cycle, leave `cycle_id` null (it defaults to the active cycle).
-    - If the user says "allocate 5000 to food" or similar, type is ALLOCATE_BUDGET, amount is 5000, category is 'food'.
-    - If the user correcting a previous transaction (e.g., "actually the food was 1200", "i meant 500 for rent", "change shoes to 800"), the type MUST be CORRECTION. Extract the category being corrected ('food') and the NEW correct amount (1200).
-    - If the user explicitly asks to remove, delete, or undo a transaction (e.g. "delete the last food expense", "remove the 5000 income from my mom"), the type MUST be DELETE. Extract the details (amount, category) of the transaction they want to delete.
-    - If the user mentions getting a partial salary, set is_partial_salary to true.
-    
-    CONVERSATION RULES:
-    1. If the user asks a question about their data ("How much did I spend?"), analyze the history and put your friendly answer into `ai_insight`!
-    2. If the user asks how much money is left or their current balance, you MUST reply separately with: the Available Balance (excluding envelopes), a list of all allocated envelope remaining amounts, and finally the sum of Total Money available.
-    3. If the user is just saying hi, making general conversation, or if no transactions are detected, DO NOT ask for clarification. Instead, match their vibe! Put a friendly response in `ai_insight` like "Hi! Any updates on today's expenses? 😊".
-    
-    Return a list of transactions, a general_query if asked, and clarification_needed if ambiguous.
-    """
-    
+
+    system_prompt = f"""You are an AI financial reasoning engine AND a warm, conversational buddy for a single-user expense tracker. Your job is to parse natural language input into structured transactional data AND reply naturally to the user.
+
+CURRENT SYSTEM TIME: {current_time}
+(Use this to resolve relative dates like "yesterday", "last week". Always output `date` as ISO: YYYY-MM-DDTHH:MM:SS)
+
+FINANCIAL CONTEXT (current cycle transactions, past cycles, envelopes):
+-----
+{data_context}
+-----
+
+PARSING RULES:
+- Transaction types: INCOME, EXPENSE, SALARY, CORRECTION, ALLOCATE_BUDGET, DELETE, DELETE_BUDGET
+- Log explicit transactions immediately: "spent 500 on food" → EXPENSE 500 food
+- **CONTEXT-AWARE REPLIES:** The full conversation history is provided as actual chat messages above this system prompt. If the user gives a SHORT or AMBIGUOUS message like "yes", "sure", "ok", "go ahead", "tell me", or a single number, you MUST read the immediately preceding assistant message and respond accordingly. For example, if the assistant just offered to "summarize spending by category", and the user says "yes", you MUST provide that spending summary in `ai_insight`.
+- CORRECTION: user fixes a past entry ("actually food was 1200") → type CORRECTION, correct category + new amount
+- DELETE: user removes a transaction ("delete the last food expense") → type DELETE with category/amount details
+- DELETE_BUDGET: user removes/clears/deletes an entire budget envelope ("remove rent envelope", "delete food budget", "clear transport allocation", "remove the rent budget") → type DELETE_BUDGET, category = envelope name, amount = 0
+- ALLOCATE_BUDGET: "allocate 5000 to food" → type ALLOCATE_BUDGET, amount 5000, category food
+- PARTIAL SALARY: set is_partial_salary=true if mentioned
+- CROSS-CYCLE: if user names a past cycle explicitly ("Cycle 7"), set cycle_id to that integer
+
+CONVERSATION RULES:
+1. If the user asks a question about their data, analyze the financial context and put a clear, friendly answer in `ai_insight`.
+2. For balance queries, break down: Available Balance + each envelope remaining + Total available.
+3. For short confirmations ("yes", "ok", "sure", "go ahead") — look at what you (the assistant) just said/offered in the previous message and FOLLOW THROUGH on that offer in `ai_insight`. Do NOT give a generic "let me know if you need help" response.
+4. For casual greetings or off-topic chat, reply warmly in `ai_insight`.
+
+Output strictly as JSON:
+{{"transactions": [{{"type": "EXPENSE", "amount": 500, "category": "food", "date": null, "intent": "lunch", "confidence_score": 0.95, "cycle_id": null, "is_partial_salary": false}}], "general_query": null, "clarification_needed": null, "ai_insight": null}}
+"""
+
+    # Build structured message list: system prompt + prior conversation turns + current user message
+    messages = [{"role": "system", "content": system_prompt}]
+
+    # Inject prior turns as real OpenAI message objects so the model has full memory
+    if chat_history:
+        for turn in chat_history[-20:]:  # keep last 20 turns max
+            role = turn.get("role", "user")
+            content = turn.get("content", "")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+
+    # Current user message
+    messages.append({"role": "user", "content": user_input})
+
     deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
-    
+
     try:
         response = client.chat.completions.create(
             model=deployment_name,
             response_format={"type": "json_object"},
-            messages=[
-                {
-                    "role": "system", 
-                    "content": system_prompt + "\n\nOutput strictly as JSON matching the NLPResponse schema:\n{\"transactions\": [{\"type\": \"DELETE\", \"amount\": 5000, \"category\": \"mom\", \"date\": null, \"intent\": \"delete duplicate income\", \"confidence_score\": 0.9, \"cycle_id\": 7, \"is_partial_salary\": false}], \"general_query\": null, \"clarification_needed\": null, \"ai_insight\": null}"
-                },
-                {"role": "user", "content": user_input}
-            ]
+            messages=messages
         )
-        
         content = response.choices[0].message.content
         parsed_data = json.loads(content)
         return NLPResponse(**parsed_data)
-        
+
     except Exception as e:
         print(f"Error parsing input: {e}")
         return NLPResponse(
             transactions=[],
-            ai_insight="I hit a slight snag understanding that! Do you have any updates on today's expenses to log? 😊"
+            ai_insight="I hit a slight snag — could you rephrase that? 😊"
         )

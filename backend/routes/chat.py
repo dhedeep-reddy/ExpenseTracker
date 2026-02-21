@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from typing import List, Dict, Any
 
 from database import get_db, Cycle, Transaction, CategoryBudget
 from routes.auth import get_current_user
@@ -11,7 +12,7 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 class ChatRequest(BaseModel):
     message: str
-    chat_history: str = "No previous chat."
+    chat_history: List[Dict[str, Any]] = []  # list of {role: "user"|"assistant", content: str}
 
 class ChatResponse(BaseModel):
     response: str
@@ -50,11 +51,25 @@ def process_chat(req: ChatRequest, current_user: dict = Depends(get_current_user
     budgets = db.query(CategoryBudget).filter(CategoryBudget.cycle_id == active_cycle.id).all()
     budget_context = "\n".join([f"Envelope '{b.category_name}': Allocated ₹{b.allocated_amount}, Spent ₹{b.spent_amount}, Remaining ₹{max(0, b.allocated_amount - b.spent_amount)}" for b in budgets]) if budgets else "No envelopes allocated."
     
-    full_context = f"PAST CYCLES SUMMARY:\n{past_cycles_context}\n\nCURRENT CYCLE TRANSACTIONS:\n{history_context}\n\nCURRENT ENVELOPES:\n{budget_context}"
+    # Pre-compute the exact available balance so the AI doesn't have to guess
+    available_balance = sm.calculate_current_balance(active_cycle)
+    total_allocated = sum(b.allocated_amount for b in budgets)
+    total_envelope_remaining = sum(max(0, b.allocated_amount - b.spent_amount) for b in budgets)
+
+    balance_summary = (
+        f"CURRENT FINANCIAL SNAPSHOT:\n"
+        f"  Available Main Balance (excl. envelopes): ₹{available_balance}\n"
+        f"  Total Allocated to Envelopes: ₹{total_allocated}\n"
+        f"  Total Envelope Remaining: ₹{total_envelope_remaining}\n"
+        f"  Total Money Available (Main + Envelopes): ₹{available_balance + total_envelope_remaining}\n"
+        f"  Cycle Salary: ₹{active_cycle.salary_amount} | Total Income: ₹{active_cycle.salary_amount + active_cycle.total_income_other_than_salary} | Total Spent: ₹{active_cycle.total_expenses}"
+    )
+
+    full_context = f"{balance_summary}\n\nPAST CYCLES SUMMARY:\n{past_cycles_context}\n\nCURRENT CYCLE TRANSACTIONS:\n{history_context}\n\nCURRENT ENVELOPES:\n{budget_context}"
     
     # Parse via NLP Engine
     try:
-        nlp_response = parse_user_input(req.message, full_context, req.chat_history)
+        nlp_response = parse_user_input(req.message, full_context, req.chat_history or [])
         response_text = sm.process_nlp_response(nlp_response, active_cycle)
         return ChatResponse(response=response_text)
     except Exception as e:

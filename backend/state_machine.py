@@ -97,6 +97,9 @@ class ExpenseStateMachine:
                 elif tx.type == TransactionType.DELETE:
                     res = self.handle_delete(tx, target_cycle)
                     responses.append(res)
+                elif tx.type == TransactionType.DELETE_BUDGET:
+                    res = self.handle_delete_budget(tx, target_cycle)
+                    responses.append(res)
                     
                 # Mechanical Recalculation mapping if a historical cycle was touched natively
                 if target_cycle.id != cycle.id:
@@ -326,6 +329,25 @@ class ExpenseStateMachine:
         self.db.commit()
         
         return f"Successfully deleted the transaction for {desc}. Remaining balance is now ₹{self.calculate_current_balance(cycle)}."
+
+    def handle_delete_budget(self, tx: NLPTransaction, cycle: Cycle) -> str:
+        from database import CategoryBudget
+        if not tx.category:
+            return "Please specify which envelope/budget category you want to remove."
+
+        budget = self.db.query(CategoryBudget).filter(
+            CategoryBudget.cycle_id == cycle.id,
+            CategoryBudget.category_name.ilike(tx.category)
+        ).first()
+
+        if not budget:
+            return f"No envelope found for '{tx.category}'."
+
+        freed = budget.allocated_amount - budget.spent_amount
+        cat_name = budget.category_name
+        self.db.delete(budget)
+        self.db.commit()
+        return f"Removed the '{cat_name}' envelope (₹{budget.allocated_amount} allocated). ₹{max(0, freed)} returned to your main balance. New balance: ₹{self.calculate_current_balance(cycle)}."
 
     def handle_query(self, query: str, cycle: Cycle) -> str:
         bal = self.calculate_current_balance(cycle)

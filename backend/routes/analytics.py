@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime
 from pydantic import BaseModel
+from typing import List
 
-from database import get_db, Cycle, Transaction, TransactionType
+from database import get_db, Cycle, Transaction, TransactionType, CategoryBudget
 from routes.auth import get_current_user
 from state_machine import ExpenseStateMachine
 
@@ -55,3 +56,24 @@ def get_dashboard_metrics(current_user: dict = Depends(get_current_user), db: Se
         daily_average_spending=daily_average,
         burn_rate_status=burn_rate_status
     )
+
+class EnvelopeItem(BaseModel):
+    category_name: str
+    allocated_amount: float
+    spent_amount: float
+    remaining_amount: float
+
+@router.get("/envelopes", response_model=List[EnvelopeItem])
+def get_envelopes(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    sm = ExpenseStateMachine(db, current_user.id)
+    active_cycle = sm.get_active_cycle()
+    budgets = db.query(CategoryBudget).filter(CategoryBudget.cycle_id == active_cycle.id).all()
+    return [
+        EnvelopeItem(
+            category_name=b.category_name,
+            allocated_amount=b.allocated_amount,
+            spent_amount=b.spent_amount,
+            remaining_amount=max(0.0, b.allocated_amount - b.spent_amount)
+        )
+        for b in budgets
+    ]
