@@ -98,7 +98,11 @@ class Transaction(Base):
     cycle = relationship("Cycle", back_populates="transactions")
 
 # Database initialization
-engine = create_engine("sqlite:///expense_tracker.db", echo=False)
+engine = create_engine(
+    "sqlite:///expense_tracker.db", 
+    connect_args={"check_same_thread": False},
+    echo=False
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():

@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from database import init_db, get_db, CategoryBudget, Transaction, TransactionType, TransactionSource
+from database import init_db, SessionLocal, CategoryBudget, Transaction, TransactionType, TransactionSource
 from state_machine import ExpenseStateMachine
 from nlp_engine import parse_user_input
 from auth import register_user, verify_user
@@ -17,8 +17,7 @@ if "user_id" not in st.session_state:
     st.session_state.username = None
 
 # Ensure DB session is available for sidebar and logic
-db_gen = get_db()
-db = next(db_gen)
+db = SessionLocal()
 
 if st.session_state.user_id is None:
     st.title("💰 Expense Tracker")
