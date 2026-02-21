@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from database import init_db, get_db, CategoryBudget, Transaction
+from database import init_db, get_db, CategoryBudget, Transaction, TransactionType, TransactionSource
 from state_machine import ExpenseStateMachine
 from nlp_engine import parse_user_input
 from auth import register_user, verify_user
@@ -230,6 +230,7 @@ elif navigation == "📅 History":
     
     view_transactions = db.query(Transaction).filter(Transaction.cycle_id == view_cycle_id).order_by(Transaction.date.asc()).all()
     view_df = pd.DataFrame([{
+        "ID": tx.id,
         "Date": tx.date,
         "Time": tx.date.strftime("%Y-%m-%d %H:%M"),
         "Type": tx.type.value,
@@ -240,6 +241,55 @@ elif navigation == "📅 History":
     } for tx in view_transactions]) if view_transactions else pd.DataFrame()
     
     if not view_df.empty:
-        st.dataframe(view_df[["Time", "Type", "Category", "Amount", "Source", "Description"]], use_container_width=True)
+        # Make the table editable
+        st.info("💡 You can double-click cells to edit them, or select a row and press Delete to remove it. Click 'Save Changes' to update.")
+        edited_df = st.data_editor(
+            view_df[["ID", "Time", "Type", "Category", "Amount", "Source", "Description"]],
+            use_container_width=True,
+            num_rows="dynamic",
+            hide_index=True,
+            key="history_editor",
+            column_config={
+                "ID": None, # Hide mapped ID
+                "Time": st.column_config.TextColumn("Time", disabled=True),
+                "Type": st.column_config.SelectboxColumn("Type", options=[e.value for e in TransactionType]),
+                "Category": st.column_config.TextColumn("Category"),
+                "Amount": st.column_config.NumberColumn("Amount", format="₹%f"),
+                "Source": st.column_config.SelectboxColumn("Source", options=[e.value for e in TransactionSource]),
+                "Description": st.column_config.TextColumn("Description"),
+            }
+        )
+        
+        if st.button("Save Changes", type="primary"):
+            changes = st.session_state.get("history_editor", {})
+            has_changes = False
+            
+            # Handle Deletions
+            for row_idx in changes.get("deleted_rows", []):
+                tx_id = int(view_df.iloc[row_idx]["ID"])
+                tx_to_del = db.query(Transaction).filter(Transaction.id == tx_id).first()
+                if tx_to_del:
+                    db.delete(tx_to_del)
+                    has_changes = True
+                    
+            # Handle Edits
+            for row_idx, cols in changes.get("edited_rows", {}).items():
+                tx_id = int(view_df.iloc[row_idx]["ID"])
+                tx_to_edit = db.query(Transaction).filter(Transaction.id == tx_id).first()
+                if tx_to_edit:
+                    if "Type" in cols: tx_to_edit.type = TransactionType(cols["Type"])
+                    if "Category" in cols: tx_to_edit.category = cols["Category"]
+                    if "Amount" in cols: tx_to_edit.amount = float(cols["Amount"])
+                    if "Source" in cols: tx_to_edit.source = TransactionSource(cols["Source"])
+                    if "Description" in cols: tx_to_edit.description = cols["Description"]
+                    has_changes = True
+
+            if has_changes:
+                db.commit()
+                # Run complete cycle recalculation
+                edit_cycle = db.query(Cycle).filter(Cycle.id == view_cycle_id).first()
+                sm.recalculate_cycle_aggregates(edit_cycle)
+                st.success("Changes saved! Balances and envelopes recalculated.")
+                st.rerun()
     else:
         st.info("No recorded transactions in this cycle yet.")

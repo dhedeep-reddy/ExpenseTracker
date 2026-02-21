@@ -27,6 +27,33 @@ class ExpenseStateMachine:
                 
         return cycle.opening_balance + cycle.total_income_other_than_salary - cycle.total_expenses - unspent_allocated
 
+    def recalculate_cycle_aggregates(self, cycle: Cycle):
+        """Wipes and re-sums cycle aggregates from ground truth Transaction rows."""
+        # 1. Reset aggregates
+        cycle.total_expenses = 0.0
+        cycle.total_income_other_than_salary = 0.0
+        
+        from database import CategoryBudget
+        budgets = self.db.query(CategoryBudget).filter(CategoryBudget.cycle_id == cycle.id).all()
+        for b in budgets:
+            b.spent_amount = 0.0
+            
+        # 2. Iterate transactions
+        txs = self.db.query(Transaction).filter(Transaction.cycle_id == cycle.id).all()
+        for tx in txs:
+            if tx.type == TransactionType.EXPENSE:
+                cycle.total_expenses += tx.amount
+                if tx.category:
+                    cat_budget = next((b for b in budgets if b.category_name.lower() == tx.category.lower()), None)
+                    if cat_budget:
+                        cat_budget.spent_amount += tx.amount
+            elif tx.type == TransactionType.INCOME:
+                cycle.total_income_other_than_salary += tx.amount
+            elif tx.type == TransactionType.SALARY:
+                cycle.salary_amount = tx.amount
+                
+        self.db.commit()
+
     def process_nlp_response(self, nlp_res: NLPResponse, cycle: Cycle) -> str:
         if nlp_res.clarification_needed:
             return nlp_res.clarification_needed
