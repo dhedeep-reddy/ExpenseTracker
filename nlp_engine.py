@@ -36,7 +36,8 @@ def parse_user_input(user_input: str, data_context: str = "", chat_history: str 
     
     Extract the transactions. Types can be INCOME, EXPENSE, SALARY, CORRECTION, ALLOCATE_BUDGET, or DELETE.
     - If the user explicitly mentions a transaction (e.g. "I spent 500 on food") log it immediately.
-    - **CRITICAL - IMPLICIT INTENT:** If the user implies an action based on the prior chat history (e.g. they say "yes update the salary" or "salary broo" or "yes 5000"), you MUST deduce what they mean from the `RECENT CHAT HISTORY` and output the correct `transactions` array. 
+    - **CRITICAL - IMPLICIT INTENT:** If the user implies an action based on the prior chat history (e.g. they say "yes update the salary" or "salary broo" or "yes 5000"), you MUST deduce what they mean from the `RECENT CHAT HISTORY`.
+    - **CROSS-CYCLE TARGETING:** If the user explicitly refers to a past cycle by number ("Cycle 7") or references modifying a past timeframe/transaction from the PAST CYCLES summary, you MUST extract its integer `cycle_id` into the JSON payload. If they don't mention a past cycle, leave `cycle_id` null (it defaults to the active cycle).
     - If the user says "allocate 5000 to food" or similar, type is ALLOCATE_BUDGET, amount is 5000, category is 'food'.
     - If the user correcting a previous transaction (e.g., "actually the food was 1200", "i meant 500 for rent", "change shoes to 800"), the type MUST be CORRECTION. Extract the category being corrected ('food') and the NEW correct amount (1200).
     - If the user explicitly asks to remove, delete, or undo a transaction (e.g. "delete the last food expense", "remove the 5000 income from my mom"), the type MUST be DELETE. Extract the details (amount, category) of the transaction they want to delete.
@@ -59,7 +60,7 @@ def parse_user_input(user_input: str, data_context: str = "", chat_history: str 
             messages=[
                 {
                     "role": "system", 
-                    "content": system_prompt + "\n\nOutput strictly as JSON matching the NLPResponse schema:\n{\"transactions\": [{\"type\": \"DELETE\", \"amount\": 5000, \"category\": \"mom\", \"date\": null, \"intent\": \"delete duplicate income\", \"confidence_score\": 0.9, \"is_partial_salary\": false}], \"general_query\": null, \"clarification_needed\": null, \"ai_insight\": null}"
+                    "content": system_prompt + "\n\nOutput strictly as JSON matching the NLPResponse schema:\n{\"transactions\": [{\"type\": \"DELETE\", \"amount\": 5000, \"category\": \"mom\", \"date\": null, \"intent\": \"delete duplicate income\", \"confidence_score\": 0.9, \"cycle_id\": 7, \"is_partial_salary\": false}], \"general_query\": null, \"clarification_needed\": null, \"ai_insight\": null}"
                 },
                 {"role": "user", "content": user_input}
             ]

@@ -10,6 +10,7 @@ class NLPTransaction(BaseModel):
     date: Optional[str] = Field(None, description="The detected date string, preferably in ISO format. Only if explicitly mentioned.")
     intent: str = Field(description="The overall intent of this transaction to help debugging system choices")
     confidence_score: float = Field(description="A confidence score between 0.0 and 1.0 representing how certain the model is about extracting these details")
+    cycle_id: Optional[int] = Field(None, description="If the user explicitly refers to applying this transaction to a past cycle or timeframe, extract its integer cycle_id based on the context summary.")
     is_partial_salary: Optional[bool] = Field(False, description="True if the user mentions getting a partial salary")
 
 class NLPResponse(BaseModel):

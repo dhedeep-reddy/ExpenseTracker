@@ -133,8 +133,8 @@ if navigation == "💬 Chat":
             
             full_context = f"PAST CYCLES SUMMARY:\n{past_cycles_context}\n\nCURRENT CYCLE TRANSACTIONS:\n{history_context}\n\nCURRENT ENVELOPES:\n{budget_context}"
             
-            # Format the last 5 chat messages for context
-            recent_msgs = st.session_state.messages[-6:-1] # excluding the one just added
+            # Format all previous chat messages for infinite context
+            recent_msgs = st.session_state.messages[:-1] # excluding the one just added
             chat_context = "\n".join([f"{m['role']}: {m['content']}" for m in recent_msgs]) if recent_msgs else "No previous chat."
             
             nlp_response = parse_user_input(user_input, full_context, chat_context)

@@ -63,7 +63,15 @@ class ExpenseStateMachine:
 
         responses = []
         if nlp_res.transactions:
+            from database import Cycle as DbCycle
             for tx in nlp_res.transactions:
+                target_cycle = cycle
+                # Check for historical routing
+                if getattr(tx, "cycle_id", None) and tx.cycle_id != cycle.id:
+                    hist_cycle = self.db.query(DbCycle).filter(DbCycle.id == tx.cycle_id, DbCycle.user_id == cycle.user_id).first()
+                    if hist_cycle:
+                        target_cycle = hist_cycle
+
                 if tx.confidence_score < 0.5:
                     responses.append(f"I need more clarification on: {tx.intent}")
                     continue
@@ -72,23 +80,27 @@ class ExpenseStateMachine:
                     pass
                 
                 if tx.type == TransactionType.SALARY:
-                    res = self.handle_salary(tx, cycle)
+                    res = self.handle_salary(tx, target_cycle)
                     responses.append(res)
                 elif tx.type == TransactionType.EXPENSE:
-                    res = self.handle_expense(tx, cycle)
+                    res = self.handle_expense(tx, target_cycle)
                     responses.append(res)
                 elif tx.type == TransactionType.INCOME:
-                    res = self.handle_additional_income(tx, cycle)
+                    res = self.handle_additional_income(tx, target_cycle)
                     responses.append(res)
                 elif tx.type == TransactionType.ALLOCATE_BUDGET:
-                    res = self.handle_allocation(tx, cycle)
+                    res = self.handle_allocation(tx, target_cycle)
                     responses.append(res)
                 elif tx.type == TransactionType.CORRECTION:
-                    res = self.handle_correction(tx, cycle)
+                    res = self.handle_correction(tx, target_cycle)
                     responses.append(res)
                 elif tx.type == TransactionType.DELETE:
-                    res = self.handle_delete(tx, cycle)
+                    res = self.handle_delete(tx, target_cycle)
                     responses.append(res)
+                    
+                # Mechanical Recalculation mapping if a historical cycle was touched natively
+                if target_cycle.id != cycle.id:
+                    self.recalculate_cycle_aggregates(target_cycle)
         
         # Combine transaction results with AI insight
         final_response = ""
