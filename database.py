@@ -18,6 +18,7 @@ class TransactionType(str, Enum):
     SALARY = "SALARY"
     CORRECTION = "CORRECTION"
     ALLOCATE_BUDGET = "ALLOCATE_BUDGET"
+    DELETE = "DELETE"
 
 class TransactionSource(str, Enum):
     MAIN_BALANCE = "MAIN_BALANCE"

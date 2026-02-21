@@ -59,6 +59,9 @@ class ExpenseStateMachine:
                 elif tx.type == TransactionType.CORRECTION:
                     res = self.handle_correction(tx, cycle)
                     responses.append(res)
+                elif tx.type == TransactionType.DELETE:
+                    res = self.handle_delete(tx, cycle)
+                    responses.append(res)
         
         # Combine transaction results with AI insight
         final_response = ""
@@ -250,6 +253,40 @@ class ExpenseStateMachine:
         self.db.commit()
         
         return f"Correction applied: Changed the latest '{tx.category}' expense from ₹{old_amount} to ₹{new_amount}. Remaining balance is now ₹{self.calculate_current_balance(cycle)}.{budget_msg}"
+
+    def handle_delete(self, tx: NLPTransaction, cycle: Cycle) -> str:
+        query = self.db.query(Transaction).filter(Transaction.cycle_id == cycle.id)
+        
+        if tx.category:
+            query = query.filter(Transaction.category.ilike(f"%{tx.category}%"))
+        if tx.amount > 0:
+            query = query.filter(Transaction.amount == tx.amount)
+            
+        latest_tx = query.order_by(Transaction.id.desc()).first()
+        
+        if not latest_tx:
+            return "Could not find a matching transaction to delete."
+            
+        desc = f"'{latest_tx.category}' (₹{latest_tx.amount})"
+        
+        if latest_tx.type == TransactionType.EXPENSE:
+            cycle.total_expenses -= latest_tx.amount
+            from database import CategoryBudget
+            if latest_tx.category:
+                cat_budget = self.db.query(CategoryBudget).filter(
+                    CategoryBudget.cycle_id == cycle.id, 
+                    CategoryBudget.category_name.ilike(latest_tx.category)
+                ).first()
+                if cat_budget:
+                    cat_budget.spent_amount -= latest_tx.amount
+                    
+        elif latest_tx.type == TransactionType.INCOME:
+            cycle.total_income_other_than_salary -= latest_tx.amount
+            
+        self.db.delete(latest_tx)
+        self.db.commit()
+        
+        return f"Successfully deleted the transaction for {desc}. Remaining balance is now ₹{self.calculate_current_balance(cycle)}."
 
     def handle_query(self, query: str, cycle: Cycle) -> str:
         bal = self.calculate_current_balance(cycle)

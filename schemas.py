@@ -4,7 +4,7 @@ from datetime import datetime
 from database import TransactionType
 
 class NLPTransaction(BaseModel):
-    type: TransactionType = Field(description="The type of the transaction: INCOME, EXPENSE, SALARY, CORRECTION, or ALLOCATE_BUDGET")
+    type: TransactionType = Field(description="The type of the transaction: INCOME, EXPENSE, SALARY, CORRECTION, ALLOCATE_BUDGET, or DELETE")
     amount: float = Field(description="The numeric amount of the transaction")
     category: Optional[str] = Field(None, description="The category of the expense or income, e.g., 'food', 'rent', 'freelance'.")
     date: Optional[str] = Field(None, description="The detected date string, preferably in ISO format. Only if explicitly mentioned.")
