@@ -9,7 +9,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { BellAlertIcon, ExclamationCircleIcon, ClockIcon } from '@heroicons/react/24/outline';
+import { BellAlertIcon, ExclamationCircleIcon, ClockIcon, PlusIcon, PencilIcon, TrashIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { isPast } from 'date-fns';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#f97316', '#14b8a6'];
@@ -24,6 +24,14 @@ export default function DashboardPage() {
     const [trendData, setTrendData] = useState<any[]>([]);
     const [envelopes, setEnvelopes] = useState<any[]>([]);
     const [reminders, setReminders] = useState<any[]>([]);
+
+    // Envelope form state
+    const [showAddEnv, setShowAddEnv] = useState(false);
+    const [newEnvCategory, setNewEnvCategory] = useState('');
+    const [newEnvAmount, setNewEnvAmount] = useState('');
+    const [envSaving, setEnvSaving] = useState(false);
+    const [editingEnvId, setEditingEnvId] = useState<number | null>(null);
+    const [editingEnvAmount, setEditingEnvAmount] = useState('');
 
     useEffect(() => {
         if (!isAuthenticated) return;
@@ -79,6 +87,41 @@ export default function DashboardPage() {
 
         fetchDashboard();
     }, [isAuthenticated, router]);
+
+    const fetchEnvelopes = async () => {
+        const res = await api.get('/analytics/envelopes');
+        setEnvelopes(res.data);
+    };
+
+    const handleAddEnvelope = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newEnvCategory.trim() || !newEnvAmount) return;
+        setEnvSaving(true);
+        try {
+            await api.post('/analytics/envelopes', {
+                category_name: newEnvCategory.trim().toLowerCase(),
+                allocated_amount: parseFloat(newEnvAmount),
+            });
+            setNewEnvCategory(''); setNewEnvAmount(''); setShowAddEnv(false);
+            await fetchEnvelopes();
+        } finally { setEnvSaving(false); }
+    };
+
+    const handleUpdateEnvelope = async (id: number) => {
+        if (!editingEnvAmount) return;
+        setEnvSaving(true);
+        try {
+            await api.put(`/analytics/envelopes/${id}`, { allocated_amount: parseFloat(editingEnvAmount) });
+            setEditingEnvId(null); setEditingEnvAmount('');
+            await fetchEnvelopes();
+        } finally { setEnvSaving(false); }
+    };
+
+    const handleDeleteEnvelope = async (id: number, name: string) => {
+        if (!confirm(`Delete the '${name}' envelope?`)) return;
+        await api.delete(`/analytics/envelopes/${id}`);
+        await fetchEnvelopes();
+    };
 
     if (loading) return <div className="p-8 text-center text-slate-500 animate-pulse">Loading dashboard...</div>;
     if (!metrics) return <div className="p-8 text-center text-red-500">Failed to load. Ensure backend is running.</div>;
@@ -201,52 +244,130 @@ export default function DashboardPage() {
             </Card>
 
             {/* ── Budget Envelopes ──────────────────────────────────── */}
-            {envelopes.length > 0 && (
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Budget Envelopes</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-5">
-                        {envelopes.map((env: any, i: number) => {
-                            const pct = env.allocated_amount > 0
-                                ? Math.min(100, (env.spent_amount / env.allocated_amount) * 100)
-                                : 0;
-                            const isOver = env.spent_amount > env.allocated_amount;
-                            const color = COLORS[i % COLORS.length];
-                            return (
-                                <div key={i}>
-                                    <div className="flex items-center justify-between mb-1.5">
-                                        <div className="flex items-center gap-2">
-                                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                                            <span className="font-medium text-slate-800 capitalize">{env.category_name}</span>
-                                        </div>
-                                        <div className="text-sm text-right">
-                                            <span className={isOver ? 'text-red-600 font-semibold' : 'text-slate-700'}>
-                                                ₹{env.spent_amount.toLocaleString('en-IN')}
-                                            </span>
-                                            <span className="text-slate-400"> / ₹{env.allocated_amount.toLocaleString('en-IN')}</span>
-                                            <span className={`ml-3 font-semibold ${isOver ? 'text-red-600' : 'text-emerald-600'}`}>
-                                                {isOver
-                                                    ? `−₹${(env.spent_amount - env.allocated_amount).toLocaleString('en-IN')} over`
-                                                    : `₹${env.remaining_amount.toLocaleString('en-IN')} left`}
-                                            </span>
-                                        </div>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                        📋 Budget Envelopes
+                    </CardTitle>
+                    <button
+                        onClick={() => setShowAddEnv(v => !v)}
+                        className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
+                    >
+                        <PlusIcon className="h-3.5 w-3.5" /> Add Envelope
+                    </button>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    {/* Add form */}
+                    {showAddEnv && (
+                        <form onSubmit={handleAddEnvelope} className="flex gap-2 p-3 bg-blue-50 rounded-xl border border-blue-200 mb-2">
+                            <input
+                                required
+                                className="flex-1 px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                                placeholder="Category (e.g. food, rent)"
+                                value={newEnvCategory}
+                                onChange={e => setNewEnvCategory(e.target.value)}
+                            />
+                            <input
+                                required
+                                type="number" min="1" step="0.01"
+                                className="w-32 px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                                placeholder="₹ Amount"
+                                value={newEnvAmount}
+                                onChange={e => setNewEnvAmount(e.target.value)}
+                            />
+                            <button type="submit" disabled={envSaving}
+                                className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-60">
+                                <CheckIcon className="h-4 w-4" /> {envSaving ? '...' : 'Add'}
+                            </button>
+                            <button type="button" onClick={() => setShowAddEnv(false)}
+                                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100">
+                                <XMarkIcon className="h-4 w-4" />
+                            </button>
+                        </form>
+                    )}
+
+                    {envelopes.length === 0 && !showAddEnv && (
+                        <div className="text-center py-6 text-slate-400 text-sm">
+                            No budget envelopes yet.{' '}
+                            <button onClick={() => setShowAddEnv(true)} className="text-blue-600 hover:underline font-medium">Create one →</button>
+                            <p className="mt-1 text-xs text-slate-400">Or say <span className="italic">"Allocate 10000 to food"</span> in AI Chat.</p>
+                        </div>
+                    )}
+
+                    {envelopes.map((env: any, i: number) => {
+                        const pct = env.allocated_amount > 0
+                            ? Math.min(100, (env.spent_amount / env.allocated_amount) * 100)
+                            : 0;
+                        const isOver = env.spent_amount > env.allocated_amount;
+                        const color = COLORS[i % COLORS.length];
+                        const isEditing = editingEnvId === env.id;
+                        return (
+                            <div key={env.id}>
+                                <div className="flex items-center justify-between mb-1.5 gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                                        <span className="font-medium text-slate-800 capitalize truncate">{env.category_name}</span>
                                     </div>
-                                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                        <div
-                                            className="h-full rounded-full transition-all duration-700"
-                                            style={{
-                                                width: `${pct}%`,
-                                                backgroundColor: isOver ? '#ef4444' : pct > 80 ? '#f59e0b' : color,
-                                            }}
-                                        />
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                        {isEditing ? (
+                                            <>
+                                                <input
+                                                    autoFocus
+                                                    type="number" min="0" step="0.01"
+                                                    value={editingEnvAmount}
+                                                    onChange={e => setEditingEnvAmount(e.target.value)}
+                                                    className="w-28 px-2 py-1 text-sm border border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                                />
+                                                <button onClick={() => handleUpdateEnvelope(env.id)} disabled={envSaving}
+                                                    className="p-1 text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="Save">
+                                                    <CheckIcon className="h-4 w-4" />
+                                                </button>
+                                                <button onClick={() => setEditingEnvId(null)}
+                                                    className="p-1 text-slate-400 hover:bg-slate-100 rounded transition-colors" title="Cancel">
+                                                    <XMarkIcon className="h-4 w-4" />
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="text-sm text-right">
+                                                    <span className={isOver ? 'text-red-600 font-semibold' : 'text-slate-700'}>
+                                                        ₹{env.spent_amount.toLocaleString('en-IN')}
+                                                    </span>
+                                                    <span className="text-slate-400"> / ₹{env.allocated_amount.toLocaleString('en-IN')}</span>
+                                                    <span className={`ml-2 font-semibold text-xs ${isOver ? 'text-red-600' : 'text-emerald-600'}`}>
+                                                        {isOver
+                                                            ? `−₹${(env.spent_amount - env.allocated_amount).toLocaleString('en-IN')} over`
+                                                            : `₹${env.remaining_amount.toLocaleString('en-IN')} left`}
+                                                    </span>
+                                                </div>
+                                                <button
+                                                    onClick={() => { setEditingEnvId(env.id); setEditingEnvAmount(String(env.allocated_amount)); }}
+                                                    className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Edit budget">
+                                                    <PencilIcon className="h-3.5 w-3.5" />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteEnvelope(env.id, env.category_name)}
+                                                    className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors" title="Delete">
+                                                    <TrashIcon className="h-3.5 w-3.5" />
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
-                            );
-                        })}
-                    </CardContent>
-                </Card>
-            )}
+                                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full rounded-full transition-all duration-700"
+                                        style={{
+                                            width: `${pct}%`,
+                                            backgroundColor: isOver ? '#ef4444' : pct > 80 ? '#f59e0b' : color,
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        );
+                    })}
+                </CardContent>
+            </Card>
 
             {/* ── Charts ───────────────────────────────────────────── */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -65,10 +65,21 @@ def get_dashboard_metrics(current_user: dict = Depends(get_current_user), db: Se
     )
 
 class EnvelopeItem(BaseModel):
+    id: int
     category_name: str
     allocated_amount: float
     spent_amount: float
     remaining_amount: float
+
+    class Config:
+        from_attributes = True
+
+class EnvelopeCreate(BaseModel):
+    category_name: str
+    allocated_amount: float
+
+class EnvelopeUpdate(BaseModel):
+    allocated_amount: float
 
 @router.get("/envelopes", response_model=List[EnvelopeItem])
 def get_envelopes(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -77,6 +88,7 @@ def get_envelopes(current_user: dict = Depends(get_current_user), db: Session = 
     budgets = db.query(CategoryBudget).filter(CategoryBudget.cycle_id == active_cycle.id).all()
     return [
         EnvelopeItem(
+            id=b.id,
             category_name=b.category_name,
             allocated_amount=b.allocated_amount,
             spent_amount=b.spent_amount,
@@ -84,6 +96,75 @@ def get_envelopes(current_user: dict = Depends(get_current_user), db: Session = 
         )
         for b in budgets
     ]
+
+@router.post("/envelopes", response_model=EnvelopeItem)
+def create_envelope(body: EnvelopeCreate, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    sm = ExpenseStateMachine(db, current_user.id)
+    active_cycle = sm.get_active_cycle()
+    # Check if already exists
+    existing = db.query(CategoryBudget).filter(
+        CategoryBudget.cycle_id == active_cycle.id,
+        CategoryBudget.category_name.ilike(body.category_name)
+    ).first()
+    if existing:
+        existing.allocated_amount += body.allocated_amount
+        db.commit()
+        db.refresh(existing)
+        b = existing
+    else:
+        b = CategoryBudget(
+            cycle_id=active_cycle.id,
+            category_name=body.category_name.lower(),
+            allocated_amount=body.allocated_amount,
+            spent_amount=0.0,
+        )
+        db.add(b)
+        db.commit()
+        db.refresh(b)
+    return EnvelopeItem(
+        id=b.id,
+        category_name=b.category_name,
+        allocated_amount=b.allocated_amount,
+        spent_amount=b.spent_amount,
+        remaining_amount=max(0.0, b.allocated_amount - b.spent_amount)
+    )
+
+@router.put("/envelopes/{envelope_id}", response_model=EnvelopeItem)
+def update_envelope(envelope_id: int, body: EnvelopeUpdate, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    sm = ExpenseStateMachine(db, current_user.id)
+    active_cycle = sm.get_active_cycle()
+    b = db.query(CategoryBudget).filter(
+        CategoryBudget.id == envelope_id,
+        CategoryBudget.cycle_id == active_cycle.id
+    ).first()
+    if not b:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Envelope not found")
+    b.allocated_amount = body.allocated_amount
+    db.commit()
+    db.refresh(b)
+    return EnvelopeItem(
+        id=b.id,
+        category_name=b.category_name,
+        allocated_amount=b.allocated_amount,
+        spent_amount=b.spent_amount,
+        remaining_amount=max(0.0, b.allocated_amount - b.spent_amount)
+    )
+
+@router.delete("/envelopes/{envelope_id}")
+def delete_envelope(envelope_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    sm = ExpenseStateMachine(db, current_user.id)
+    active_cycle = sm.get_active_cycle()
+    b = db.query(CategoryBudget).filter(
+        CategoryBudget.id == envelope_id,
+        CategoryBudget.cycle_id == active_cycle.id
+    ).first()
+    if not b:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Envelope not found")
+    db.delete(b)
+    db.commit()
+    return {"message": "Envelope deleted"}
 
 class MonthlyHistoryItem(BaseModel):
     month: str          # "2025-01"
