@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Enum as SQLEnum, create_engine
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Enum as SQLEnum, Boolean, Text, create_engine
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
 Base = declarative_base()
@@ -30,6 +30,12 @@ class TransactionSource(str, Enum):
     LOAN = "LOAN"
     OTHER_INCOME = "OTHER_INCOME"
 
+class ReminderType(str, Enum):
+    LOAN = "LOAN"
+    BILL = "BILL"
+    SUBSCRIPTION = "SUBSCRIPTION"
+    CUSTOM = "CUSTOM"
+
 class User(Base):
     __tablename__ = "users"
     
@@ -39,6 +45,7 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     
     cycles = relationship("Cycle", back_populates="user")
+    reminders = relationship("Reminder", back_populates="user")
 
 class Cycle(Base):
     __tablename__ = "cycles"
@@ -97,6 +104,21 @@ class Transaction(Base):
     confidence_score = Column(Float, nullable=True)
     
     cycle = relationship("Cycle", back_populates="transactions")
+
+class Reminder(Base):
+    __tablename__ = "reminders"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    title = Column(String, nullable=False)
+    amount = Column(Float, default=0.0)
+    due_date = Column(DateTime, nullable=True)
+    type = Column(SQLEnum(ReminderType), default=ReminderType.CUSTOM)
+    is_paid = Column(Boolean, default=False)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="reminders")
 
 # Database initialization
 import os

@@ -8,6 +8,9 @@ import {
 } from 'recharts';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { BellAlertIcon, ExclamationCircleIcon, ClockIcon } from '@heroicons/react/24/outline';
+import { isPast } from 'date-fns';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#f97316', '#14b8a6'];
 
@@ -20,20 +23,30 @@ export default function DashboardPage() {
     const [categoryData, setCategoryData] = useState<{ name: string; value: number }[]>([]);
     const [trendData, setTrendData] = useState<any[]>([]);
     const [envelopes, setEnvelopes] = useState<any[]>([]);
+    const [reminders, setReminders] = useState<any[]>([]);
 
     useEffect(() => {
         if (!isAuthenticated) return;
 
         const fetchDashboard = async () => {
             try {
-                const [metricsRes, txRes, envRes] = await Promise.all([
+                const [metricsRes, txRes, envRes, remRes] = await Promise.all([
                     api.get('/analytics/dashboard'),
                     api.get('/transactions'),
                     api.get('/analytics/envelopes'),
+                    api.get('/reminders/'),
                 ]);
 
                 setMetrics(metricsRes.data);
                 setEnvelopes(envRes.data);
+                // Show only upcoming/overdue (not paid), sorted by due_date
+                const activeRem = (remRes.data as any[]).filter((r: any) => !r.is_paid);
+                activeRem.sort((a: any, b: any) => {
+                    if (!a.due_date) return 1;
+                    if (!b.due_date) return -1;
+                    return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+                });
+                setReminders(activeRem.slice(0, 4));
 
                 const txs: any[] = txRes.data;
                 const expenses = txs.filter(t => t.type === 'EXPENSE');
@@ -140,6 +153,52 @@ export default function DashboardPage() {
                     </CardContent>
                 </Card>
             </div>
+
+            {/* ── Reminders Widget ─────────────────────────────────────── */}
+            <Card className={reminders.some((r: any) => r.due_date && isPast(new Date(r.due_date))) ? 'border-red-200' : ''}>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                        <BellAlertIcon className="h-5 w-5 text-brand" />
+                        Upcoming Payments &amp; Loans
+                    </CardTitle>
+                    <Link href="/reminders" className="text-xs text-brand hover:underline font-medium">View all →</Link>
+                </CardHeader>
+                <CardContent>
+                    {reminders.length === 0 ? (
+                        <p className="text-sm text-slate-400 text-center py-3">
+                            No upcoming reminders.{' '}
+                            <Link href="/reminders" className="text-brand hover:underline">Add one →</Link>
+                        </p>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {reminders.map((r: any) => {
+                                const overdue = r.due_date && isPast(new Date(r.due_date));
+                                return (
+                                    <div key={r.id} className={`flex items-center justify-between p-3 rounded-lg border ${overdue ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'
+                                        }`}>
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            {overdue
+                                                ? <ExclamationCircleIcon className="h-4 w-4 text-red-500 flex-shrink-0" />
+                                                : <ClockIcon className="h-4 w-4 text-amber-500 flex-shrink-0" />}
+                                            <div className="min-w-0">
+                                                <p className={`text-sm font-medium truncate ${overdue ? 'text-red-700' : 'text-slate-800'}`}>{r.title}</p>
+                                                {r.due_date && (
+                                                    <p className={`text-xs ${overdue ? 'text-red-500 font-medium' : 'text-slate-400'}`}>
+                                                        {overdue ? '⚠ Overdue' : `Due ${new Date(r.due_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <span className={`ml-3 font-bold text-sm flex-shrink-0 ${overdue ? 'text-red-700' : 'text-slate-900'}`}>
+                                            ₹{r.amount.toLocaleString('en-IN')}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
 
             {/* ── Budget Envelopes ──────────────────────────────────── */}
             {envelopes.length > 0 && (

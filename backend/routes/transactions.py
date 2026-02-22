@@ -32,6 +32,17 @@ class TransactionResponse(BaseModel):
     class Config:
         from_attributes = True
 
+@router.get("/all", response_model=List[TransactionResponse])
+def get_all_transactions(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Get ALL transactions for user across all cycles — used for monthly history drill-down."""
+    return (
+        db.query(Transaction)
+        .join(Cycle)
+        .filter(Cycle.user_id == current_user.id)
+        .order_by(Transaction.date.desc())
+        .all()
+    )
+
 @router.get("/", response_model=List[TransactionResponse])
 def get_transactions(
     cycle_id: Optional[int] = None,

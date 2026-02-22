@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from pydantic import BaseModel
 from typing import List
+from collections import defaultdict
 
 from database import get_db, Cycle, Transaction, TransactionType, CategoryBudget
 from routes.auth import get_current_user
@@ -77,3 +78,45 @@ def get_envelopes(current_user: dict = Depends(get_current_user), db: Session = 
         )
         for b in budgets
     ]
+
+class MonthlyHistoryItem(BaseModel):
+    month: str          # "2025-01"
+    label: str          # "Jan 2025"
+    total_income: float
+    total_expenses: float
+    net: float
+    transaction_count: int
+
+@router.get("/monthly-history", response_model=List[MonthlyHistoryItem])
+def get_monthly_history(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Get all cycles for user
+    user_cycle_ids = [c.id for c in db.query(Cycle).filter(Cycle.user_id == current_user.id).all()]
+    if not user_cycle_ids:
+        return []
+    
+    # Get all transactions across all cycles
+    all_txs = db.query(Transaction).filter(Transaction.cycle_id.in_(user_cycle_ids)).all()
+    
+    monthly: dict = defaultdict(lambda: {"total_income": 0.0, "total_expenses": 0.0, "count": 0})
+    
+    for tx in all_txs:
+        month_key = tx.date.strftime("%Y-%m")
+        monthly[month_key]["count"] += 1
+        if tx.type.value in ("INCOME", "SALARY"):
+            monthly[month_key]["total_income"] += tx.amount
+        elif tx.type.value == "EXPENSE":
+            monthly[month_key]["total_expenses"] += tx.amount
+    
+    result = []
+    for month_key in sorted(monthly.keys(), reverse=True):
+        data = monthly[month_key]
+        dt = datetime.strptime(month_key, "%Y-%m")
+        result.append(MonthlyHistoryItem(
+            month=month_key,
+            label=dt.strftime("%b %Y"),
+            total_income=round(data["total_income"], 2),
+            total_expenses=round(data["total_expenses"], 2),
+            net=round(data["total_income"] - data["total_expenses"], 2),
+            transaction_count=data["count"],
+        ))
+    return result

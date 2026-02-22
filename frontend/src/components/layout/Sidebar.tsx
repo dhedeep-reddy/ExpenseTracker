@@ -8,6 +8,9 @@ import {
     SparklesIcon,
     XMarkIcon,
     ChatBubbleLeftRightIcon,
+    BellAlertIcon,
+    UserGroupIcon,
+    CalendarDaysIcon,
 } from '@heroicons/react/24/outline';
 import { cn } from '../ui/Button';
 
@@ -20,6 +23,9 @@ const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
     { name: 'AI Chat', href: '/chat', icon: ChatBubbleLeftRightIcon },
     { name: 'Transactions', href: '/transactions', icon: ListBulletIcon },
+    { name: 'Reminders & Loans', href: '/reminders', icon: BellAlertIcon },
+    { name: 'Trip Splitter', href: '/splitter', icon: UserGroupIcon },
+    { name: 'Monthly History', href: '/history', icon: CalendarDaysIcon },
     { name: 'AI Insights', href: '/insights', icon: SparklesIcon },
 ];
 
