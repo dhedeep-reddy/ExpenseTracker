@@ -24,30 +24,36 @@ class BalanceResponse(BaseModel):
 def get_dashboard_metrics(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     sm = ExpenseStateMachine(db, current_user.id)
     active_cycle = sm.get_active_cycle()
-    
-    available_balance = sm.calculate_current_balance(active_cycle)
-    total_income = active_cycle.salary_amount + active_cycle.total_income_other_than_salary
-    total_expenses = active_cycle.total_expenses
+
+    # Simple running balance: all income/salary across ALL cycles minus all expenses
+    all_txs = db.query(Transaction).join(Cycle).filter(Cycle.user_id == current_user.id).all()
+    total_income = sum(t.amount for t in all_txs if t.type in (TransactionType.INCOME, TransactionType.SALARY))
+    total_expenses = sum(t.amount for t in all_txs if t.type == TransactionType.EXPENSE)
+    available_balance = total_income - total_expenses
     net_flow = total_income - total_expenses
-    
-    # Estimate remaining days (assuming 30-day month cycle)
-    if active_cycle.salary_credit_date:
-        days_passed = (datetime.utcnow() - active_cycle.salary_credit_date).days
-        remaining_days = max(0, 30 - days_passed)
-        daily_average = total_expenses / max(1, days_passed)
-    else:
-        remaining_days = 30
-        daily_average = 0.0
-        
-    # Burn Rate Status
+
+    # Days in current month for spend rate calculation
+    now = datetime.utcnow()
+    day_of_month = now.day
+    days_in_month = 30
+    remaining_days = max(0, days_in_month - day_of_month)
+
+    # This month's expenses for burn rate
+    this_month_expenses = sum(
+        t.amount for t in all_txs
+        if t.type == TransactionType.EXPENSE
+        and t.date.year == now.year and t.date.month == now.month
+    )
+    daily_average = this_month_expenses / max(1, day_of_month)
+
     burn_rate_status = "STABLE"
     if remaining_days > 0 and daily_average > 0:
-        days_covered_by_balance = available_balance / daily_average
-        if days_covered_by_balance < remaining_days * 0.5:
+        days_covered = available_balance / daily_average
+        if days_covered < remaining_days * 0.5:
             burn_rate_status = "CRITICAL"
-        elif days_covered_by_balance < remaining_days:
+        elif days_covered < remaining_days:
             burn_rate_status = "WARNING"
-            
+
     return BalanceResponse(
         available_balance=available_balance,
         total_income=total_income,
