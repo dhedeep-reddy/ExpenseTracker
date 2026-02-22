@@ -114,11 +114,8 @@ class ExpenseStateMachine:
                 if target_cycle.id != cycle.id:
                     self.recalculate_cycle_aggregates(target_cycle)
 
-        final_response = "\n".join(responses) if responses else ""
-        if nlp_res.ai_insight:
-            final_response = (final_response + "\n\n" + nlp_res.ai_insight if final_response else nlp_res.ai_insight)
-
-        return final_response.strip() if final_response else "Done!"
+        final_response = "\n".join(r for r in responses if r)
+        return final_response.strip() if final_response else ""
 
     def handle_salary(self, tx: NLPTransaction, cycle: Cycle) -> str:
         """Record salary as income — no cycle closing, just adds to running balance."""
