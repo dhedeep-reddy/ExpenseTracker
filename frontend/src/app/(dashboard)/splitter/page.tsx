@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 import api from '@/lib/api';
-import { UserGroupIcon, ArrowRightIcon, SparklesIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { UserGroupIcon, ArrowRightIcon, SparklesIcon, XMarkIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 
 interface ExpenseItem {
     description: string;
@@ -45,19 +45,78 @@ export default function SplitterPage() {
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<SplitResult | null>(null);
     const [error, setError] = useState('');
+    const [myMember, setMyMember] = useState<MemberBalance | null>(null);
+    const [loggedMyShare, setLoggedMyShare] = useState(false);
+    const [loggingShare, setLoggingShare] = useState(false);
+
+    // Detect if the user referred to themselves (I/me/myself)
+    const detectOwner = (desc: string, balances: MemberBalance[]): MemberBalance | null => {
+        const lower = desc.toLowerCase();
+        const selfKeywords = ['\\bi paid\\b', '\\bi\\b', '\\bme\\b', '\\bmyself\\b', '\\bmy\\b'];
+        const hasSelf = selfKeywords.some(k => new RegExp(k).test(lower));
+        if (!hasSelf) return null;
+        // Look for member named "Me", "I", "Myself", or the first person (index 0 by convention)
+        const meNames = ['me', 'i', 'myself', 'owner', 'self'];
+        const match = balances.find(m => meNames.includes(m.name.toLowerCase()));
+        return match || balances[0] || null; // fallback to first member
+    };
 
     const handleAnalyze = async () => {
         if (!description.trim()) return;
         setLoading(true);
         setError('');
         setResult(null);
+        setMyMember(null);
+        setLoggedMyShare(false);
         try {
             const res = await api.post('/splitter/analyze', { description });
-            setResult(res.data);
+            const data: SplitResult = res.data;
+            setResult(data);
+            // Detect owner in description
+            const owner = detectOwner(description, data.member_balances);
+            setMyMember(owner);
         } catch (e: any) {
             setError(e.response?.data?.detail || 'Something went wrong. Please try again.');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleLogMyShare = async () => {
+        if (!myMember) return;
+        setLoggingShare(true);
+        try {
+            // Log the owner's fair_share as an expense. 
+            // If they paid more than their share, also log what others owe them as income.
+            const totalPaid = myMember.total_paid;
+            const fairShare = myMember.fair_share;
+            // Log what they personally spent (fair share portion)
+            if (fairShare > 0) {
+                await api.post('/transactions/', {
+                    type: 'EXPENSE',
+                    amount: Math.round(fairShare * 100) / 100,
+                    category: 'entertainment',
+                    description: `Trip split share — ${result?.expenses.map(e => e.description).join(', ') || 'Group trip'}`,
+                    source: 'MAIN_BALANCE',
+                    date: new Date().toISOString(),
+                });
+            }
+            // If they paid on behalf of others, log the extra as income (to be received)
+            const toReceive = myMember.net_balance > 0 ? myMember.net_balance : 0;
+            if (toReceive > 0) {
+                await api.post('/transactions/', {
+                    type: 'INCOME',
+                    amount: Math.round(toReceive * 100) / 100,
+                    description: `Trip split: amount to receive from others (${result?.members.filter(m => m.toLowerCase() !== myMember.name.toLowerCase()).join(', ')})`,
+                    source: 'MAIN_BALANCE',
+                    date: new Date().toISOString(),
+                });
+            }
+            setLoggedMyShare(true);
+        } catch (e: any) {
+            setError('Failed to log transaction: ' + (e.response?.data?.detail || e.message));
+        } finally {
+            setLoggingShare(false);
         }
     };
 
@@ -69,6 +128,8 @@ export default function SplitterPage() {
         setResult(null);
         setDescription('');
         setError('');
+        setMyMember(null);
+        setLoggedMyShare(false);
     };
 
     return (
@@ -283,6 +344,51 @@ export default function SplitterPage() {
                             </div>
                         </CardContent>
                     </Card>
+
+                    {/* ── Log My Share Banner ──────────────────────── */}
+                    {myMember && (
+                        <Card className={`border-2 ${loggedMyShare ? 'border-emerald-300 bg-emerald-50' : 'border-brand/40 bg-brand/5'}`}>
+                            <CardContent className="pt-5">
+                                {loggedMyShare ? (
+                                    <div className="flex items-center gap-3 text-emerald-700">
+                                        <CheckCircleIcon className="h-6 w-6 flex-shrink-0" />
+                                        <div>
+                                            <p className="font-semibold">Logged to your expenses! ✅</p>
+                                            <p className="text-sm text-emerald-600 mt-0.5">
+                                                ₹{myMember.fair_share.toLocaleString('en-IN')} added as expense
+                                                {myMember.net_balance > 0 && ` · ₹${myMember.net_balance.toLocaleString('en-IN')} logged as income (to receive)`}
+                                            </p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                                        <div className="flex-1">
+                                            <p className="font-semibold text-slate-900 text-sm flex items-center gap-1.5">
+                                                💡 Log your share as an expense?
+                                            </p>
+                                            <p className="text-xs text-slate-500 mt-1">
+                                                Detected you ({myMember.name}) in this trip. Your fair share is
+                                                {' '}<span className="font-bold text-slate-800">₹{myMember.fair_share.toLocaleString('en-IN')}</span>.
+                                                {myMember.net_balance > 0 && ` You're owed ₹${myMember.net_balance.toLocaleString('en-IN')} back.`}
+                                                {myMember.net_balance < 0 && ` You owe ₹${Math.abs(myMember.net_balance).toLocaleString('en-IN')}.`}
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={handleLogMyShare}
+                                            disabled={loggingShare}
+                                            className="flex items-center gap-2 bg-brand text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-60 flex-shrink-0"
+                                        >
+                                            {loggingShare ? (
+                                                <><div className="h-4 w-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Logging…</>
+                                            ) : (
+                                                <><CheckCircleIcon className="h-4 w-4" /> Log My Share</>
+                                            )}
+                                        </button>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    )}
                 </div>
             )}
         </div>

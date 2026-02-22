@@ -55,10 +55,10 @@ function renderMarkdown(text: string): React.ReactNode {
 const SUGGESTED = [
     { emoji: '💰', text: 'I got my salary of 75000 today' },
     { emoji: '🛒', text: 'Spent 800 on groceries today' },
-    { emoji: '📊', text: 'How much have I spent so far this month?' },
     { emoji: '💼', text: 'Allocate 10000 to food and 5000 to transport' },
-    { emoji: '📝', text: 'Show me my current balance breakdown' },
-    { emoji: '🔄', text: 'Actually the grocery expense was 950 not 800' },
+    { emoji: '🔔', text: 'Add a reminder: rent 12000 due on 1st next month' },
+    { emoji: '✅', text: 'I paid the electricity bill' },
+    { emoji: '📊', text: 'How much have I spent so far? Break it down by category' },
 ];
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -291,7 +291,7 @@ export default function ChatPage() {
                         </button>
                     </div>
                     <p className="mt-2 text-center text-[11px] text-slate-400">
-                        FinAI has full access to your transactions, budgets & cycles · Enter ↵ to send
+                        FinAI has full access to your transactions, budgets &amp; reminders · Enter ↵ to send
                     </p>
                 </div>
             </div>

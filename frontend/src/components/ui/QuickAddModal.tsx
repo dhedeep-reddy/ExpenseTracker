@@ -10,7 +10,6 @@ interface QuickAddModalProps {
     onSuccess: () => void;
 }
 
-// Today's date in YYYY-MM-DD format for default
 function todayStr() {
     return new Date().toISOString().slice(0, 10);
 }
@@ -19,6 +18,8 @@ const EXPENSE_CATEGORIES = [
     'Food', 'Groceries', 'Transport', 'Entertainment', 'Rent',
     'Utilities', 'Healthcare', 'Shopping', 'Education', 'Other',
 ];
+
+const INPUT_CLS = "w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 transition-all";
 
 export const QuickAddModal: React.FC<QuickAddModalProps> = ({ isOpen, onClose, onSuccess }) => {
     const [mode, setMode] = useState<'ai' | 'manual'>('ai');
@@ -41,7 +42,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({ isOpen, onClose, o
     const resetForm = () => {
         setAmount(''); setCategory(''); setCustomCategory('');
         setDescription(''); setDate(todayStr()); setSource('MAIN_BALANCE');
-        setError(''); setChatResponse('');
+        setError(''); setChatResponse(''); setNlpText('');
     };
 
     const handleClose = () => { resetForm(); onClose(); };
@@ -67,14 +68,13 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({ isOpen, onClose, o
         if (!amount || parseFloat(amount) <= 0) { setError('Please enter a valid amount.'); return; }
         setLoading(true); setError('');
         const finalCategory = category === '__custom__' ? customCategory : category;
-        // Build ISO datetime from date input
         const dateISO = date ? new Date(date + 'T12:00:00').toISOString() : new Date().toISOString();
         try {
             await api.post('/transactions/', {
                 type,
                 amount: parseFloat(amount),
                 category: type === 'EXPENSE' ? (finalCategory || null) : null,
-                description: (type === 'INCOME' ? description : undefined) || undefined,
+                description: description || undefined,
                 source: type === 'EXPENSE' ? source : 'MAIN_BALANCE',
                 date: dateISO,
             });
@@ -91,22 +91,26 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({ isOpen, onClose, o
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
             <Card className="w-full max-w-lg shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
                 <button
+                    type="button"
                     onClick={handleClose}
-                    className="absolute right-4 top-4 p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-900 rounded-full transition-colors"
+                    className="absolute right-4 top-4 p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-900 rounded-full transition-colors z-10"
                 >
                     <XMarkIcon className="h-5 w-5" />
                 </button>
 
                 <CardHeader>
                     <CardTitle>Log Transaction</CardTitle>
+                    {/* Mode Toggle */}
                     <div className="flex bg-slate-100 p-1 mt-4 rounded-lg">
                         <button
+                            type="button"
                             onClick={() => { setMode('ai'); resetForm(); }}
-                            className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${mode === 'ai' ? 'bg-white shadow-sm text-brand' : 'text-slate-500 hover:text-slate-700'}`}
+                            className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${mode === 'ai' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
                         >
                             <SparklesIcon className="h-4 w-4 inline mr-1" /> AI Assistant
                         </button>
                         <button
+                            type="button"
                             onClick={() => { setMode('manual'); resetForm(); }}
                             className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${mode === 'manual' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
                         >
@@ -118,24 +122,24 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({ isOpen, onClose, o
                 <CardContent>
                     {mode === 'ai' ? (
                         <form onSubmit={handleAISubmit} className="space-y-4 pt-2">
-                            <div className="bg-brand/5 border border-brand/10 p-4 rounded-xl text-brand text-sm">
+                            <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-blue-700 text-sm">
                                 Just type what happened — the AI will categorize and log it.
-                                <span className="text-brand/70 block mt-1 italic">"Spent 500 on dinner yesterday"</span>
+                                <span className="text-blue-500 block mt-1 italic">"Spent 500 on dinner yesterday"</span>
                             </div>
                             <textarea
-                                className="input-field min-h-[100px] resize-none text-lg"
+                                className={`${INPUT_CLS} min-h-[100px] resize-none`}
                                 placeholder="What happened with your money?"
                                 value={nlpText}
                                 onChange={e => setNlpText(e.target.value)}
                                 autoFocus
                             />
                             {chatResponse && (
-                                <div className="p-3 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium">
+                                <div className="p-3 bg-emerald-50 text-emerald-700 rounded-lg text-sm font-medium border border-emerald-200">
                                     {chatResponse}
                                 </div>
                             )}
                             {error && <p className="text-red-500 text-sm">{error}</p>}
-                            <Button type="submit" disabled={loading} className="w-full text-lg h-12">
+                            <Button type="submit" disabled={loading} className="w-full text-base h-12">
                                 {loading ? 'Processing...' : 'Log via AI ✨'}
                             </Button>
                         </form>
@@ -164,13 +168,16 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({ isOpen, onClose, o
                                 </div>
                             </div>
 
-                            {/* AMOUNT + DATE (always shown) */}
+                            {/* AMOUNT + DATE */}
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-1.5">
                                     <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Amount (₹)</label>
                                     <input
-                                        type="number" required min="0" step="0.01"
-                                        className="input-field"
+                                        type="number"
+                                        required
+                                        min="0.01"
+                                        step="0.01"
+                                        className={INPUT_CLS}
                                         placeholder="0.00"
                                         value={amount}
                                         onChange={e => setAmount(e.target.value)}
@@ -181,12 +188,26 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({ isOpen, onClose, o
                                     <input
                                         type="date"
                                         required
-                                        className="input-field"
+                                        className={INPUT_CLS}
                                         value={date}
                                         max={todayStr()}
                                         onChange={e => setDate(e.target.value)}
                                     />
                                 </div>
+                            </div>
+
+                            {/* Description (always shown) */}
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                                    Description <span className="text-slate-400 normal-case font-normal">(optional)</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    className={INPUT_CLS}
+                                    placeholder="e.g. Dinner with friends, Office supplies..."
+                                    value={description}
+                                    onChange={e => setDescription(e.target.value)}
+                                />
                             </div>
 
                             {/* EXPENSE-ONLY: Category + Source */}
@@ -195,7 +216,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({ isOpen, onClose, o
                                     <div className="space-y-1.5">
                                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Category</label>
                                         <select
-                                            className="input-field"
+                                            className={INPUT_CLS}
                                             value={category}
                                             onChange={e => setCategory(e.target.value)}
                                         >
@@ -206,7 +227,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({ isOpen, onClose, o
                                         {category === '__custom__' && (
                                             <input
                                                 type="text"
-                                                className="input-field mt-2"
+                                                className={`${INPUT_CLS} mt-2`}
                                                 placeholder="Type your category name"
                                                 value={customCategory}
                                                 onChange={e => setCustomCategory(e.target.value)}
@@ -215,36 +236,20 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({ isOpen, onClose, o
                                     </div>
                                     <div className="space-y-1.5">
                                         <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Payment Source</label>
-                                        <select className="input-field" value={source} onChange={e => setSource(e.target.value)}>
-                                            <option value="MAIN_BALANCE">Main Balance (Cash / Bank)</option>
-                                            <option value="CREDIT_CARD">Credit Card</option>
-                                            <option value="BORROWED">Borrowed</option>
-                                            <option value="SAVINGS">Savings Account</option>
+                                        <select className={INPUT_CLS} value={source} onChange={e => setSource(e.target.value)}>
+                                            <option value="MAIN_BALANCE">💵 Main Balance (Cash / Bank)</option>
+                                            <option value="CREDIT_CARD">💳 Credit Card</option>
+                                            <option value="BORROWED">🤝 Borrowed</option>
+                                            <option value="SAVINGS">🏦 Savings Account</option>
                                         </select>
                                     </div>
                                 </>
                             )}
 
-                            {/* INCOME-ONLY: Description */}
-                            {type === 'INCOME' && (
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                                        Description <span className="text-slate-400 normal-case font-normal">(optional)</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        className="input-field"
-                                        placeholder="e.g. Freelance payment, Gift..."
-                                        value={description}
-                                        onChange={e => setDescription(e.target.value)}
-                                    />
-                                </div>
-                            )}
-
                             {error && <p className="text-red-500 text-sm">{error}</p>}
 
-                            <Button type="submit" disabled={loading} className="w-full mt-2">
-                                {loading ? 'Saving...' : `Save ${type === 'EXPENSE' ? 'Expense' : type === 'INCOME' ? 'Income' : 'Salary'}`}
+                            <Button type="submit" disabled={loading} className="w-full mt-2 h-11">
+                                {loading ? 'Saving...' : `Save ${type === 'EXPENSE' ? '💸 Expense' : type === 'INCOME' ? '💰 Income' : '🏦 Salary'}`}
                             </Button>
                         </form>
                     )}
