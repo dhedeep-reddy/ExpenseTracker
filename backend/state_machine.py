@@ -24,11 +24,26 @@ class ExpenseStateMachine:
         return cycle
 
     def calculate_current_balance(self, cycle: Cycle) -> float:
-        """Simple running total: all income/salary + opening_balance - all expenses."""
+        """
+        Available Balance = Total Income − Total Expenses − Total Envelope Remaining
+        
+        Envelope remaining = money allocated but not yet spent (locked for future use).
+        When you allocate ₹10,000 to food → free balance drops by ₹10,000.
+        When you spend ₹800 from food envelope → balance unchanged (₹800 moves from locked→spent).
+        When you spend ₹500 outside any envelope → free balance drops by ₹500.
+        """
+        from database import CategoryBudget
         txs = self.db.query(Transaction).join(Cycle).filter(Cycle.user_id == self.user_id).all()
         total_income = sum(t.amount for t in txs if t.type in (TransactionType.INCOME, TransactionType.SALARY))
         total_expense = sum(t.amount for t in txs if t.type == TransactionType.EXPENSE)
-        return total_income - total_expense
+
+        # Locked money: allocated to envelopes but not yet spent
+        active_cycle = self.get_active_cycle()
+        budgets = self.db.query(CategoryBudget).filter(CategoryBudget.cycle_id == active_cycle.id).all()
+        total_locked = sum(max(0.0, b.allocated_amount - b.spent_amount) for b in budgets)
+
+        return total_income - total_expense - total_locked
+
 
     def recalculate_cycle_aggregates(self, cycle: Cycle):
         """Recalculate cycle aggregates from all transactions (across all of user's cycles)."""

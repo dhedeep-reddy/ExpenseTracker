@@ -25,12 +25,18 @@ def get_dashboard_metrics(current_user: dict = Depends(get_current_user), db: Se
     sm = ExpenseStateMachine(db, current_user.id)
     active_cycle = sm.get_active_cycle()
 
-    # Simple running balance: all income/salary across ALL cycles minus all expenses
+    # Simple running balance: all income minus expenses minus locked envelope money
     all_txs = db.query(Transaction).join(Cycle).filter(Cycle.user_id == current_user.id).all()
     total_income = sum(t.amount for t in all_txs if t.type in (TransactionType.INCOME, TransactionType.SALARY))
     total_expenses = sum(t.amount for t in all_txs if t.type == TransactionType.EXPENSE)
-    available_balance = total_income - total_expenses
+
+    # Locked money: envelope allocations not yet spent
+    budgets = db.query(CategoryBudget).filter(CategoryBudget.cycle_id == active_cycle.id).all()
+    total_locked = sum(max(0.0, b.allocated_amount - b.spent_amount) for b in budgets)
+
+    available_balance = total_income - total_expenses - total_locked
     net_flow = total_income - total_expenses
+
 
     # Days in current month for spend rate calculation
     now = datetime.utcnow()
