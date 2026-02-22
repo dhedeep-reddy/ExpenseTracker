@@ -9,6 +9,7 @@ interface ExpenseItem {
     amount: number;
     paid_by: string;
     split_among: string[];
+    split_amounts: Record<string, number>;
 }
 
 interface MemberBalance {
@@ -326,7 +327,9 @@ export default function SplitterPage() {
                                                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-brand/10 text-brand">{e.paid_by}</span>
                                                 </td>
                                                 <td className="px-4 py-3 text-slate-500 text-xs">
-                                                    {e.split_among.length === 0 ? 'All equally' : e.split_among.join(', ')}
+                                                    {e.split_amounts && Object.keys(e.split_amounts).length > 0
+                                                        ? Object.entries(e.split_amounts).map(([name, amt]) => `${name}: ₹${amt}`).join(', ')
+                                                        : e.split_among.length === 0 ? 'All equally' : e.split_among.join(', ')}
                                                 </td>
                                             </tr>
                                         ))}
