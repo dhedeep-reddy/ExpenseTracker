@@ -10,6 +10,7 @@ from routes.analytics import router as analytics_router
 from routes.chat import router as chat_router
 from routes.reminders import router as reminders_router
 from routes.splitter import router as splitter_router
+from routes.admin import router as admin_router
 
 app = FastAPI(title="FinAI Expense Tracker API")
 
@@ -33,6 +34,7 @@ app.include_router(analytics_router)
 app.include_router(chat_router)
 app.include_router(reminders_router)
 app.include_router(splitter_router)
+app.include_router(admin_router)
 
 @app.on_event("startup")
 def on_startup():
