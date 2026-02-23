@@ -28,7 +28,6 @@ const navItems = [
     { name: 'Trip Splitter', href: '/splitter', icon: UserGroupIcon },
     { name: 'Monthly History', href: '/history', icon: CalendarDaysIcon },
     { name: 'AI Insights', href: '/insights', icon: SparklesIcon },
-    { name: 'Admin', href: '/admin', icon: CircleStackIcon },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {

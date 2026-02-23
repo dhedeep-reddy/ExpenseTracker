@@ -20,7 +20,7 @@ export default function LoginPage() {
 
         try {
             const response = await api.post('/auth/login', { username, password });
-            login(response.data.access_token, response.data.username);
+            login(response.data.access_token, response.data.username, response.data.is_admin ?? false);
         } catch (err: any) {
             setError(err.response?.data?.detail || 'Failed to login. Please check your credentials.');
         } finally {

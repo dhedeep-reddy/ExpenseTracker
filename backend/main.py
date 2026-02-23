@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import init_db
 import os
 
-from routes.auth import router as auth_router
+from routes.auth import router as auth_router, seed_admin
 from routes.cycles import router as cycles_router
 from routes.transactions import router as transactions_router
 from routes.analytics import router as analytics_router
@@ -39,6 +39,13 @@ app.include_router(admin_router)
 @app.on_event("startup")
 def on_startup():
     init_db()
+    # Seed the admin account (creates if not exists)
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        seed_admin(db)
+    finally:
+        db.close()
 
 @app.get("/")
 def read_root():

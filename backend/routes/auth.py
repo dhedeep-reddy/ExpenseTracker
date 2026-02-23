@@ -13,8 +13,11 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "supersecret-dev-key")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 days
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+ADMIN_USERNAME = "Admin"
+ADMIN_PASSWORD = "FinAIAdmin"
 
 class UserCreate(BaseModel):
     username: str
@@ -28,6 +31,7 @@ class Token(BaseModel):
     access_token: str
     token_type: str
     username: str
+    is_admin: bool
 
 def create_access_token(data: dict):
     to_encode = data.copy()
@@ -36,29 +40,44 @@ def create_access_token(data: dict):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+def seed_admin(db: Session):
+    """Create the admin account if it doesn't exist yet."""
+    existing = db.query(User).filter(User.username == ADMIN_USERNAME).first()
+    if not existing:
+        admin = User(
+            username=ADMIN_USERNAME,
+            password_hash=generate_password_hash(ADMIN_PASSWORD),
+            is_admin=True,
+        )
+        db.add(admin)
+        db.commit()
+
 @router.post("/register", response_model=Token)
 def register(user: UserCreate, db: Session = Depends(get_db)):
+    if user.username.lower() == ADMIN_USERNAME.lower():
+        raise HTTPException(status_code=400, detail="Username not allowed")
     db_user = db.query(User).filter(User.username == user.username).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Username already registered")
-    
+
     hashed_password = generate_password_hash(user.password)
-    new_user = User(username=user.username, password_hash=hashed_password)
+    new_user = User(username=user.username, password_hash=hashed_password, is_admin=False)
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    
+
     access_token = create_access_token(data={"sub": new_user.username})
-    return {"access_token": access_token, "token_type": "bearer", "username": new_user.username}
+    return {"access_token": access_token, "token_type": "bearer", "username": new_user.username, "is_admin": False}
 
 @router.post("/login", response_model=Token)
 def login(user: UserLogin, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.username == user.username).first()
     if not db_user or not check_password_hash(db_user.password_hash, user.password):
         raise HTTPException(status_code=401, detail="Incorrect username or password")
-    
+
     access_token = create_access_token(data={"sub": db_user.username})
-    return {"access_token": access_token, "token_type": "bearer", "username": db_user.username}
+    is_admin = getattr(db_user, "is_admin", False) or False
+    return {"access_token": access_token, "token_type": "bearer", "username": db_user.username, "is_admin": is_admin}
 
 # Dependency for protecting other routes
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):

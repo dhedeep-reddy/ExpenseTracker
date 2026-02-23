@@ -67,16 +67,14 @@ def _user_summary(user: User, db: Session) -> UserSummary:
 
 @router.get("/users", response_model=List[UserSummary])
 def list_users(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """List all registered users with their financial summaries. Only accessible to user id=1 (first registered)."""
-    if current_user.id != 1:
+    if not getattr(current_user, "is_admin", False):
         raise HTTPException(status_code=403, detail="Admin access only")
-    users = db.query(User).order_by(User.id).all()
+    users = db.query(User).filter(User.is_admin == False).order_by(User.id).all()
     return [_user_summary(u, db) for u in users]
 
 @router.get("/users/{user_id}", response_model=UserDetail)
 def get_user_detail(user_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Full detail for a user including all transactions, envelopes, reminders."""
-    if current_user.id != 1:
+    if not getattr(current_user, "is_admin", False):
         raise HTTPException(status_code=403, detail="Admin access only")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
