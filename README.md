@@ -139,14 +139,5 @@ npm run dev
 | Query balance | *"How much money do I have left?"* |
 | Financial advice | *"How am I doing this month?"* |
 
----
 
-## 📸 Screenshots
 
-> Dashboard, AI Chat, Transactions, and AI Insights pages available after running locally.
-
----
-
-## 📄 License
-
-MIT
