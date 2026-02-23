@@ -135,6 +135,16 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    # Migration: safely add is_admin column to existing databases (PostgreSQL)
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            conn.commit()
+        except Exception:
+            conn.rollback()  # column might already exist on SQLite or re-run
 
 def get_db():
     db = SessionLocal()
