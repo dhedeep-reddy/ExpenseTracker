@@ -1,10 +1,11 @@
 "use client"
 import React, { useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { AuthProviderCode, useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { ArrowRightOnRectangleIcon, ShieldCheckIcon } from '@heroicons/react/24/outline';
 
-export default function AdminPortalLayout({ children }: { children: React.ReactNode }) {
+// Inner layout component that can safely call useAuth (it's inside AuthProviderCode)
+function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     const { token, isAdmin, logout, username } = useAuth();
     const router = useRouter();
 
@@ -46,5 +47,16 @@ export default function AdminPortalLayout({ children }: { children: React.ReactN
                 {children}
             </main>
         </div>
+    );
+}
+
+// Outer layout wraps inner with AuthProviderCode so useAuth() is always inside a provider
+export default function AdminPortalLayout({ children }: { children: React.ReactNode }) {
+    return (
+        <AuthProviderCode>
+            <AdminLayoutInner>
+                {children}
+            </AdminLayoutInner>
+        </AuthProviderCode>
     );
 }
