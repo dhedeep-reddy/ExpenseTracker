@@ -111,3 +111,59 @@ def get_user_detail(user_id: int, current_user: dict = Depends(get_current_user)
         envelopes=envelopes,
         reminders=rem_list,
     )
+
+# ── User management ────────────────────────────────────────────────────────
+
+class UserResetPassword(BaseModel):
+    new_password: str
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+
+@router.delete("/users/{user_id}")
+def delete_user(user_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not getattr(current_user, "is_admin", False):
+        raise HTTPException(status_code=403, detail="Admin access only")
+    user = db.query(User).filter(User.id == user_id, User.is_admin == False).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found or cannot delete admin")
+    # Cascade: delete all user data
+    cycles = db.query(Cycle).filter(Cycle.user_id == user_id).all()
+    for cycle in cycles:
+        db.query(CategoryBudget).filter(CategoryBudget.cycle_id == cycle.id).delete()
+        db.query(Transaction).filter(Transaction.cycle_id == cycle.id).delete()
+    db.query(Cycle).filter(Cycle.user_id == user_id).delete()
+    db.query(Reminder).filter(Reminder.user_id == user_id).delete()
+    db.delete(user)
+    db.commit()
+    return {"message": f"User '{user.username}' and all their data deleted"}
+
+@router.put("/users/{user_id}/reset-password")
+def reset_password(user_id: int, body: UserResetPassword, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not getattr(current_user, "is_admin", False):
+        raise HTTPException(status_code=403, detail="Admin access only")
+    from werkzeug.security import generate_password_hash
+    user = db.query(User).filter(User.id == user_id, User.is_admin == False).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.password_hash = generate_password_hash(body.new_password)
+    db.commit()
+    return {"message": f"Password reset for '{user.username}'"}
+
+@router.post("/users/create", response_model=UserSummary)
+def admin_create_user(body: UserCreate, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not getattr(current_user, "is_admin", False):
+        raise HTTPException(status_code=403, detail="Admin access only")
+    from werkzeug.security import generate_password_hash
+    from routes.auth import ADMIN_USERNAME
+    if body.username.lower() == ADMIN_USERNAME.lower():
+        raise HTTPException(status_code=400, detail="Username not allowed")
+    existing = db.query(User).filter(User.username == body.username).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    new_user = User(username=body.username, password_hash=generate_password_hash(body.password), is_admin=False)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return _user_summary(new_user, db)
