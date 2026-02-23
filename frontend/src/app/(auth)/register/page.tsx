@@ -27,7 +27,7 @@ export default function RegisterPage() {
 
         try {
             const response = await api.post('/auth/register', { username, password });
-            login(response.data.access_token, response.data.username);
+            login(response.data.access_token, response.data.username, false);
         } catch (err: any) {
             setError(err.response?.data?.detail || 'Failed to create account. Please try a different username.');
         } finally {
