@@ -2,7 +2,8 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 import api from '@/lib/api';
-import { UserGroupIcon, ArrowRightIcon, SparklesIcon, XMarkIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
+import { UserGroupIcon, ArrowRightIcon, SparklesIcon, XMarkIcon, CheckCircleIcon, MicrophoneIcon } from '@heroicons/react/24/outline';
+import { useVoiceInput } from '@/hooks/useVoiceInput';
 
 interface ExpenseItem {
     description: string;
@@ -49,6 +50,13 @@ export default function SplitterPage() {
     const [myMember, setMyMember] = useState<MemberBalance | null>(null);
     const [loggedMyShare, setLoggedMyShare] = useState(false);
     const [loggingShare, setLoggingShare] = useState(false);
+
+    // Voice input hook
+    const { isListening, toggle: toggleVoice, supported: voiceSupported, errorMsg: voiceError } = useVoiceInput({
+        onTranscript: (text) => {
+            setDescription(prev => prev ? `${prev} ${text}` : text);
+        },
+    });
 
     // Detect if the user referred to themselves (I/me/myself)
     const detectOwner = (desc: string, balances: MemberBalance[]): MemberBalance | null => {
@@ -154,14 +162,28 @@ export default function SplitterPage() {
                             <SparklesIcon className="h-4 w-4 text-brand" />
                             Describe your trip or group expense
                         </div>
-                        <textarea
-                            value={description}
-                            onChange={e => setDescription(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder="e.g. Me, Alice and Bob went on a trip. I paid ₹3000 for hotel, Alice paid ₹1500 for food, Bob paid ₹900 for taxi. Split equally."
-                            rows={4}
-                            className="w-full border border-slate-200 bg-white rounded-xl px-4 py-3 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/30 resize-none shadow-sm placeholder:text-slate-400"
-                        />
+                        {voiceError && <div className="text-xs text-red-500">{voiceError}</div>}
+                        <div className={`relative flex items-end rounded-xl border transition-all ${isListening ? 'border-red-400 bg-red-50 ring-4 ring-red-50' : 'border-slate-200 bg-white focus-within:border-brand/50 focus-within:ring-4 focus-within:ring-brand/10'}`}>
+                            <textarea
+                                value={description}
+                                onChange={e => setDescription(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                placeholder={isListening ? "Listening..." : "e.g. Me, Alice and Bob went on a trip. I paid ₹3000 for hotel, Alice paid ₹1500 for food, Bob paid ₹900 for taxi. Split equally."}
+                                rows={4}
+                                disabled={isListening}
+                                className="w-full bg-transparent px-4 py-3 text-sm text-slate-800 focus:outline-none resize-none placeholder:text-slate-400 pr-12"
+                            />
+                            {voiceSupported && (
+                                <button
+                                    type="button"
+                                    onClick={toggleVoice}
+                                    className={`absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg transition-all ${isListening ? 'bg-red-500 text-white animate-pulse shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700'}`}
+                                    title={isListening ? "Stop listening" : "Start voice input"}
+                                >
+                                    <MicrophoneIcon className="h-4 w-4" />
+                                </button>
+                            )}
+                        </div>
 
                         {/* Example prompts */}
                         {!result && (

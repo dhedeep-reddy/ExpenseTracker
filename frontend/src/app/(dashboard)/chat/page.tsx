@@ -9,7 +9,65 @@ import {
     UserCircleIcon,
     ArrowPathIcon,
 } from '@heroicons/react/24/solid';
-import { ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
+import { ChatBubbleLeftRightIcon, MicrophoneIcon } from '@heroicons/react/24/outline';
+import { useVoiceInput } from '@/hooks/useVoiceInput';
+
+// ─── Voice Input Component ──────────────────────────────────────────────────
+function VoiceChatInput({ value, onChange, onSend, isLoading }: { value: string, onChange: (v: string) => void, onSend: () => void, isLoading: boolean }) {
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const { state, isListening, toggle, supported, errorMsg } = useVoiceInput({
+        onTranscript: (text) => {
+            onChange(value ? `${value} ${text}` : text);
+        },
+    });
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            if (value.trim() && !isLoading) onSend();
+        }
+    };
+
+    return (
+        <div className="flex flex-col gap-2">
+            {errorMsg && <div className="text-xs text-red-500 text-center">{errorMsg}</div>}
+            <div className={`flex items-end gap-3 rounded-2xl border px-4 py-3 transition-all ${isListening ? 'border-red-400 bg-red-50 ring-4 ring-red-50' : 'border-slate-300 bg-slate-50 focus-within:border-blue-400 focus-within:bg-white focus-within:ring-4 focus-within:ring-blue-50'}`}>
+                <textarea
+                    ref={textareaRef}
+                    id="chat-input"
+                    rows={1}
+                    value={value}
+                    onChange={e => onChange(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={isListening ? "Listening..." : "Ask anything about your finances... (Enter to send)"}
+                    className="flex-1 resize-none bg-transparent text-sm text-slate-900 placeholder-slate-400 outline-none max-h-40"
+                    disabled={isListening}
+                />
+
+                {supported && (
+                    <button
+                        type="button"
+                        onClick={toggle}
+                        className={`shrink-0 flex h-9 w-9 items-center justify-center rounded-xl transition-all ${isListening ? 'bg-red-500 text-white animate-pulse shadow-md shadow-red-200' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}
+                        title={isListening ? "Stop listening" : "Start voice input"}
+                    >
+                        <MicrophoneIcon className="h-4 w-4" />
+                    </button>
+                )}
+
+                <button
+                    id="chat-send-btn"
+                    onClick={() => { if (value.trim() && !isLoading && !isListening) onSend(); }}
+                    disabled={!value.trim() || isLoading || isListening}
+                    className="shrink-0 flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md shadow-blue-200 hover:bg-blue-700 disabled:bg-slate-300 disabled:shadow-none transition-all duration-150"
+                >
+                    <PaperAirplaneIcon className="h-4 w-4" />
+                </button>
+            </div>
+        </div>
+    );
+}
+
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface Message {
@@ -270,26 +328,12 @@ export default function ChatPage() {
             {/* ── Input Bar ────────────────────────────────────────────── */}
             <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-4">
                 <div className="max-w-3xl mx-auto">
-                    <div className="flex items-end gap-3 rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 focus-within:border-blue-400 focus-within:bg-white focus-within:ring-4 focus-within:ring-blue-50 transition-all">
-                        <textarea
-                            ref={textareaRef}
-                            id="chat-input"
-                            rows={1}
-                            value={input}
-                            onChange={e => setInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder="Ask anything about your finances… (Enter to send)"
-                            className="flex-1 resize-none bg-transparent text-sm text-slate-900 placeholder-slate-400 outline-none max-h-40"
-                        />
-                        <button
-                            id="chat-send-btn"
-                            onClick={() => sendMessage(input)}
-                            disabled={!input.trim() || isLoading}
-                            className="shrink-0 flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md shadow-blue-200 hover:bg-blue-700 disabled:bg-slate-300 disabled:shadow-none transition-all duration-150"
-                        >
-                            <PaperAirplaneIcon className="h-4 w-4" />
-                        </button>
-                    </div>
+                    <VoiceChatInput
+                        value={input}
+                        onChange={setInput}
+                        onSend={() => sendMessage(input)}
+                        isLoading={isLoading}
+                    />
                     <p className="mt-2 text-center text-[11px] text-slate-400">
                         FinAI has full access to your transactions, budgets &amp; reminders · Enter ↵ to send
                     </p>
