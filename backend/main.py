@@ -14,10 +14,15 @@ from routes.admin import router as admin_router
 
 app = FastAPI(title="FinAI Expense Tracker API")
 
-# CORS — reads comma-separated ALLOWED_ORIGINS, with Vercel URL baked in as default
-_default_origins = "http://localhost:3000,https://expense-tracker-rose-seven-62.vercel.app"
-ALLOWED_ORIGINS_STR = os.getenv("ALLOWED_ORIGINS", _default_origins)
-allowed_origins = [o.strip() for o in ALLOWED_ORIGINS_STR.split(",") if o.strip()]
+# CORS — always allow localhost + the known Vercel URL.
+# Set FRONTEND_URL in the Render dashboard to add extra origins (e.g. preview URLs).
+_base_origins = [
+    "http://localhost:3000",
+    "https://expense-tracker-rose-seven-62.vercel.app",
+]
+_extra_origins_str = os.getenv("FRONTEND_URL", "")
+_extra_origins = [o.strip() for o in _extra_origins_str.split(",") if o.strip()]
+allowed_origins = _base_origins + _extra_origins
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,4 +56,8 @@ def on_startup():
 def read_root():
     return {"message": "Welcome to the Expense Tracker API"}
 
-# Trigger reload
+@app.get("/api/health")
+def health_check():
+    """Quick liveness check — visit this URL in a browser to confirm the backend is alive."""
+    return {"status": "ok"}
+
