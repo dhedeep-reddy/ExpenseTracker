@@ -18,6 +18,7 @@ app = FastAPI(title="FinAI Expense Tracker API")
 # Set FRONTEND_URL in the Render dashboard to your Netlify URL (or any extra origins, comma-separated).
 _base_origins = [
     "http://localhost:3000",
+    "https://finai-expense-tracker.netlify.app",
 ]
 _extra_origins_str = os.getenv("FRONTEND_URL", "")
 _extra_origins = [o.strip() for o in _extra_origins_str.split(",") if o.strip()]
