@@ -14,11 +14,10 @@ from routes.admin import router as admin_router
 
 app = FastAPI(title="FinAI Expense Tracker API")
 
-# CORS — always allow localhost + the known Vercel URL.
-# Set FRONTEND_URL in the Render dashboard to add extra origins (e.g. preview URLs).
+# CORS — always allow localhost.
+# Set FRONTEND_URL in the Render dashboard to your Netlify URL (or any extra origins, comma-separated).
 _base_origins = [
     "http://localhost:3000",
-    "https://expense-tracker-rose-seven-62.vercel.app",
 ]
 _extra_origins_str = os.getenv("FRONTEND_URL", "")
 _extra_origins = [o.strip() for o in _extra_origins_str.split(",") if o.strip()]
