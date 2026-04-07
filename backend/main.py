@@ -12,7 +12,7 @@ from routes.reminders import router as reminders_router
 from routes.splitter import router as splitter_router
 from routes.admin import router as admin_router
 
-app = FastAPI(title="FinAI Expense Tracker API")
+app = FastAPI(title="FinAI Expense Tracker API", redirect_slashes=False)
 
 # CORS — always allow localhost.
 # Set FRONTEND_URL in the Render dashboard to your Netlify URL (or any extra origins, comma-separated).

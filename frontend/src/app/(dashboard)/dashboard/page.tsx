@@ -33,58 +33,53 @@ export default function DashboardPage() {
     const [editingEnvId, setEditingEnvId] = useState<number | null>(null);
     const [editingEnvAmount, setEditingEnvAmount] = useState('');
 
+    const fetchDashboard = async () => {
+        setLoading(true);
+        try {
+            const metricsRes = await api.get('/analytics/dashboard');
+            const txRes = await api.get('/transactions/');
+            const envRes = await api.get('/analytics/envelopes');
+            const remRes = await api.get('/reminders/');
+
+            setMetrics(metricsRes.data);
+            setEnvelopes(envRes.data);
+            const activeRem = (remRes.data as any[]).filter((r: any) => !r.is_paid);
+            activeRem.sort((a: any, b: any) => {
+                if (!a.due_date) return 1;
+                if (!b.due_date) return -1;
+                return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+            });
+            setReminders(activeRem.slice(0, 4));
+
+            const txs: any[] = txRes.data;
+            const expenses = txs.filter(t => t.type === 'EXPENSE');
+            if (expenses.length > 0) {
+                const catMap: Record<string, number> = {};
+                expenses.forEach(t => {
+                    const cat = t.category
+                        ? t.category.charAt(0).toUpperCase() + t.category.slice(1)
+                        : 'Other';
+                    catMap[cat] = (catMap[cat] || 0) + t.amount;
+                });
+                setCategoryData(Object.keys(catMap).map(k => ({ name: k, value: catMap[k] })));
+
+                const trendMap: Record<string, number> = {};
+                [...expenses].reverse().forEach(t => {
+                    const d = new Date(t.date).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+                    trendMap[d] = (trendMap[d] || 0) + t.amount;
+                });
+                setTrendData(Object.keys(trendMap).map(k => ({ date: k, amount: trendMap[k] })));
+            }
+        } catch (err: any) {
+            if (err.response?.status === 401) router.push('/login');
+            console.error('Dashboard fetch failed', err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
         if (!isAuthenticated) return;
-
-        const fetchDashboard = async () => {
-            try {
-                const [metricsRes, txRes, envRes, remRes] = await Promise.all([
-                    api.get('/analytics/dashboard'),
-                    api.get('/transactions'),
-                    api.get('/analytics/envelopes'),
-                    api.get('/reminders/'),
-                ]);
-
-                setMetrics(metricsRes.data);
-                setEnvelopes(envRes.data);
-                // Show only upcoming/overdue (not paid), sorted by due_date
-                const activeRem = (remRes.data as any[]).filter((r: any) => !r.is_paid);
-                activeRem.sort((a: any, b: any) => {
-                    if (!a.due_date) return 1;
-                    if (!b.due_date) return -1;
-                    return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
-                });
-                setReminders(activeRem.slice(0, 4));
-
-                const txs: any[] = txRes.data;
-                const expenses = txs.filter(t => t.type === 'EXPENSE');
-                if (expenses.length > 0) {
-                    // Category Pie
-                    const catMap: Record<string, number> = {};
-                    expenses.forEach(t => {
-                        const cat = t.category
-                            ? t.category.charAt(0).toUpperCase() + t.category.slice(1)
-                            : 'Other';
-                        catMap[cat] = (catMap[cat] || 0) + t.amount;
-                    });
-                    setCategoryData(Object.keys(catMap).map(k => ({ name: k, value: catMap[k] })));
-
-                    // Trend line
-                    const trendMap: Record<string, number> = {};
-                    [...expenses].reverse().forEach(t => {
-                        const d = new Date(t.date).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
-                        trendMap[d] = (trendMap[d] || 0) + t.amount;
-                    });
-                    setTrendData(Object.keys(trendMap).map(k => ({ date: k, amount: trendMap[k] })));
-                }
-            } catch (err: any) {
-                if (err.response?.status === 401) router.push('/login');
-                console.error('Dashboard fetch failed', err);
-            } finally {
-                setLoading(false);
-            }
-        };
-
         fetchDashboard();
     }, [isAuthenticated, router]);
 
@@ -124,7 +119,17 @@ export default function DashboardPage() {
     };
 
     if (loading) return <div className="p-8 text-center text-slate-500 animate-pulse">Loading dashboard...</div>;
-    if (!metrics) return <div className="p-8 text-center text-red-500">Failed to load. Ensure backend is running.</div>;
+    if (!metrics) return (
+        <div className="p-8 text-center">
+            <p className="text-red-500 mb-4">Failed to load dashboard. The backend may be warming up.</p>
+            <button
+                onClick={fetchDashboard}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+                Retry
+            </button>
+        </div>
+    );
 
     return (
         <div className="space-y-6">

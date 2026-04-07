@@ -43,6 +43,7 @@ def get_all_transactions(current_user: dict = Depends(get_current_user), db: Ses
         .all()
     )
 
+@router.get("", response_model=List[TransactionResponse])
 @router.get("/", response_model=List[TransactionResponse])
 def get_transactions(
     cycle_id: Optional[int] = None,
