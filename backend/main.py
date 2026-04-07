@@ -19,6 +19,7 @@ app = FastAPI(title="FinAI Expense Tracker API")
 _base_origins = [
     "http://localhost:3000",
     "https://finai-expense-tracker.netlify.app",
+    "https://friedpotato232-finai-backend.hf.space",
 ]
 _extra_origins_str = os.getenv("FRONTEND_URL", "")
 _extra_origins = [o.strip() for o in _extra_origins_str.split(",") if o.strip()]
