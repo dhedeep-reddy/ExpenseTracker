@@ -52,7 +52,17 @@ export default function DashboardPage() {
             setReminders(activeRem.slice(0, 4));
 
             const txs: any[] = txRes.data;
-            const expenses = txs.filter(t => t.type === 'EXPENSE');
+
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const currentMonth = now.getMonth(); // 0-indexed
+
+            const expenses = txs.filter(t => {
+                if (t.type !== 'EXPENSE') return false;
+                const d = new Date(t.date);
+                return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+            });
+
             if (expenses.length > 0) {
                 const catMap: Record<string, number> = {};
                 expenses.forEach(t => {
@@ -69,6 +79,9 @@ export default function DashboardPage() {
                     trendMap[d] = (trendMap[d] || 0) + t.amount;
                 });
                 setTrendData(Object.keys(trendMap).map(k => ({ date: k, amount: trendMap[k] })));
+            } else {
+                setCategoryData([]);
+                setTrendData([]);
             }
         } catch (err: any) {
             if (err.response?.status === 401) router.push('/login');

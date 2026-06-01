@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 import api from '@/lib/api';
 import { CalendarDaysIcon, ChevronDownIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend,
+    PieChart, Pie, Cell, LineChart, Line
 } from 'recharts';
 import { format } from 'date-fns';
 
@@ -26,6 +27,8 @@ interface Transaction {
     description: string | null;
     source: string;
 }
+
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#f97316', '#14b8a6'];
 
 const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload?.length) {
@@ -197,34 +200,143 @@ export default function HistoryPage() {
                                                 {loadingMonth === row.month ? (
                                                     <div className="p-6 text-center text-slate-400 text-sm animate-pulse">Loading transactions…</div>
                                                 ) : monthTxs[row.month]?.length > 0 ? (
-                                                    <table className="w-full text-xs border-t border-slate-200">
-                                                        <thead>
-                                                            <tr className="bg-slate-100">
-                                                                <th className="px-6 py-2 text-left text-slate-500 font-medium">Date</th>
-                                                                <th className="px-6 py-2 text-left text-slate-500 font-medium">Category</th>
-                                                                <th className="px-6 py-2 text-left text-slate-500 font-medium">Type</th>
-                                                                <th className="px-6 py-2 text-right text-slate-500 font-medium">Amount</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody className="divide-y divide-slate-200">
-                                                            {monthTxs[row.month].map(tx => (
-                                                                <tr key={tx.id} className="hover:bg-slate-100/60">
-                                                                    <td className="px-6 py-2 text-slate-500">
-                                                                        {format(new Date(tx.date), 'dd MMM')}
-                                                                    </td>
-                                                                    <td className="px-6 py-2 text-slate-700 capitalize font-medium">{tx.category || '—'}</td>
-                                                                    <td className="px-6 py-2">
-                                                                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${tx.type === 'EXPENSE' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                                                            {tx.type}
-                                                                        </span>
-                                                                    </td>
-                                                                    <td className={`px-6 py-2 text-right font-semibold ${tx.type === 'EXPENSE' ? 'text-red-600' : 'text-emerald-600'}`}>
-                                                                        ₹{tx.amount.toLocaleString('en-IN')}
-                                                                    </td>
-                                                                </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
+                                                    <div className="p-4 md:p-6 space-y-6 border-t border-slate-200">
+                                                        {/* Dynamic Graphs for this month */}
+                                                        {(() => {
+                                                            const monthExpenses = monthTxs[row.month].filter(t => t.type === 'EXPENSE');
+                                                            if (monthExpenses.length === 0) return null;
+
+                                                            // 1. Spending by Category data
+                                                            const catMap: Record<string, number> = {};
+                                                            monthExpenses.forEach(t => {
+                                                                const cat = t.category
+                                                                    ? t.category.charAt(0).toUpperCase() + t.category.slice(1)
+                                                                    : 'Other';
+                                                                catMap[cat] = (catMap[cat] || 0) + t.amount;
+                                                            });
+                                                            const mCategoryData = Object.keys(catMap).map(k => ({ name: k, value: catMap[k] }));
+
+                                                            // 2. Spending Trend data
+                                                            const trendMap: Record<string, number> = {};
+                                                            const sortedExpenses = [...monthExpenses].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                                                            sortedExpenses.forEach(t => {
+                                                                const d = new Date(t.date).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+                                                                trendMap[d] = (trendMap[d] || 0) + t.amount;
+                                                            });
+                                                            const mTrendData = Object.keys(trendMap).map(k => ({ date: k, amount: trendMap[k] }));
+
+                                                            return (
+                                                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                                    {/* Spending by Category Card */}
+                                                                    <Card className="flex flex-col border border-slate-200/80 shadow-sm bg-white">
+                                                                        <CardHeader className="pb-2">
+                                                                            <CardTitle className="text-sm font-bold text-slate-700">Spending by Category ({row.label})</CardTitle>
+                                                                        </CardHeader>
+                                                                        <CardContent className="flex-1 pb-4">
+                                                                            <div className="flex flex-col sm:flex-row items-center gap-4">
+                                                                                <div className="w-full sm:w-1/2">
+                                                                                    <ResponsiveContainer width="100%" height={160}>
+                                                                                        <PieChart>
+                                                                                            <Pie
+                                                                                                data={mCategoryData}
+                                                                                                cx="50%" cy="50%"
+                                                                                                innerRadius={45} outerRadius={70}
+                                                                                                paddingAngle={4} dataKey="value" stroke="none"
+                                                                                            >
+                                                                                                {mCategoryData.map((_, index) => (
+                                                                                                    <Cell key={index} fill={COLORS[index % COLORS.length]} />
+                                                                                                ))}
+                                                                                            </Pie>
+                                                                                            <RechartsTooltip
+                                                                                                formatter={(value: any, name: any) => [`₹${Number(value).toLocaleString('en-IN')}`, name]}
+                                                                                                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                                                                            />
+                                                                                        </PieChart>
+                                                                                    </ResponsiveContainer>
+                                                                                </div>
+                                                                                
+                                                                                {/* Category Legend */}
+                                                                                <div className="w-full sm:w-1/2 grid grid-cols-1 gap-1.5 pt-1 max-h-[160px] overflow-y-auto pr-1">
+                                                                                    {mCategoryData.map((item, index) => {
+                                                                                        const total = mCategoryData.reduce((s, d) => s + d.value, 0);
+                                                                                        const pct = total > 0 ? ((item.value / total) * 100).toFixed(1) : '0';
+                                                                                        return (
+                                                                                            <div key={index} className="flex items-center gap-2 text-xs min-w-0">
+                                                                                                <span
+                                                                                                    className="w-2 h-2 rounded-full flex-shrink-0"
+                                                                                                    style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                                                                                                />
+                                                                                                <span className="text-slate-700 truncate flex-1 font-medium">{item.name}</span>
+                                                                                                <span className="text-slate-400 font-medium flex-shrink-0">{pct}%</span>
+                                                                                            </div>
+                                                                                        );
+                                                                                    })}
+                                                                                </div>
+                                                                            </div>
+                                                                        </CardContent>
+                                                                    </Card>
+
+                                                                    {/* Spending Trend Card */}
+                                                                    <Card className="flex flex-col border border-slate-200/80 shadow-sm bg-white min-h-[220px]">
+                                                                        <CardHeader className="pb-2">
+                                                                            <CardTitle className="text-sm font-bold text-slate-700">Spending Trend ({row.label})</CardTitle>
+                                                                        </CardHeader>
+                                                                        <CardContent className="flex-1 min-h-[160px] pb-4">
+                                                                            <ResponsiveContainer width="100%" height="100%">
+                                                                                <LineChart data={mTrendData}>
+                                                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                                                                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} dy={6} />
+                                                                                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} tickFormatter={v => `₹${v}`} />
+                                                                                    <RechartsTooltip
+                                                                                        formatter={(value: any) => [`₹${Number(value).toLocaleString('en-IN')}`, 'Spent']}
+                                                                                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                                                                    />
+                                                                                    <Line type="monotone" dataKey="amount" stroke="#3b82f6" strokeWidth={2.5}
+                                                                                        dot={{ r: 3.5, strokeWidth: 1.5, fill: '#fff' }}
+                                                                                        activeDot={{ r: 5, fill: '#3b82f6' }} />
+                                                                                </LineChart>
+                                                                            </ResponsiveContainer>
+                                                                        </CardContent>
+                                                                    </Card>
+                                                                </div>
+                                                            );
+                                                        })()}
+
+                                                        {/* Sub-table with transactions */}
+                                                        <div className="space-y-2">
+                                                            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Transactions for {row.label}</h4>
+                                                            <div className="border border-slate-200/80 rounded-xl overflow-hidden bg-white shadow-sm">
+                                                                <table className="w-full text-xs">
+                                                                    <thead>
+                                                                        <tr className="bg-slate-50 border-b border-slate-200">
+                                                                            <th className="px-6 py-2.5 text-left text-slate-500 font-semibold uppercase tracking-wider">Date</th>
+                                                                            <th className="px-6 py-2.5 text-left text-slate-500 font-semibold uppercase tracking-wider">Category</th>
+                                                                            <th className="px-6 py-2.5 text-left text-slate-500 font-semibold uppercase tracking-wider">Type</th>
+                                                                            <th className="px-6 py-2.5 text-right text-slate-500 font-semibold uppercase tracking-wider">Amount</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody className="divide-y divide-slate-100">
+                                                                        {monthTxs[row.month].map(tx => (
+                                                                            <tr key={tx.id} className="hover:bg-slate-50/50 transition-colors">
+                                                                                <td className="px-6 py-2.5 text-slate-500">
+                                                                                    {format(new Date(tx.date), 'dd MMM')}
+                                                                                </td>
+                                                                                <td className="px-6 py-2.5 text-slate-700 capitalize font-medium">{tx.category || '—'}</td>
+                                                                                <td className="px-6 py-2.5">
+                                                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide ${tx.type === 'EXPENSE' ? 'bg-red-50 text-red-700 border border-red-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'}`}>
+                                                                                        {tx.type}
+                                                                                    </span>
+                                                                                </td>
+                                                                                <td className={`px-6 py-2.5 text-right font-bold ${tx.type === 'EXPENSE' ? 'text-slate-900' : 'text-emerald-600'}`}>
+                                                                                    {tx.type === 'EXPENSE' ? '−' : '+'}₹{tx.amount.toLocaleString('en-IN')}
+                                                                                </td>
+                                                                            </tr>
+                                                                        ))}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 ) : (
                                                     <div className="p-6 text-center text-slate-400 text-sm">Transaction detail coming soon — click a month to see more.</div>
                                                 )}
