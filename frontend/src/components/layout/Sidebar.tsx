@@ -26,7 +26,7 @@ const navItems = [
     { name: 'Reminders & Loans', href: '/reminders', icon: BellAlertIcon },
     { name: 'Trip Splitter', href: '/splitter', icon: UserGroupIcon },
     { name: 'Monthly History', href: '/history', icon: CalendarDaysIcon },
-    { name: 'AI Insights', href: '/insights', icon: SparklesIcon },
+    { name: 'Reports & Insights', href: '/insights', icon: SparklesIcon },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {

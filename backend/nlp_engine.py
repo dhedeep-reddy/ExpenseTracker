@@ -119,3 +119,87 @@ OUTPUT FORMAT (strict JSON, all fields present, null for unused)
             reminder_actions=[],
             ai_insight="I hit a slight snag — could you rephrase that? 😊"
         )
+
+
+def generate_report_summary(stats: dict) -> dict:
+    """Given pre-computed spending statistics, ask GPT-4o for a warm narrative
+    summary + actionable bullet points. Returns a dict with keys:
+    headline (str), paragraphs (list[str]), bullets (list[str]).
+    Falls back to a rule-based summary if the AI call fails."""
+
+    system_prompt = """You are FinAI, a warm and sharp personal-finance analyst.
+You are given pre-computed statistics about a user's ENTIRE spending history across many months.
+Write a concise, encouraging, and genuinely useful financial review.
+
+Rules:
+- Use Indian Rupees (₹) and Indian number formatting.
+- Be specific: reference the actual numbers, categories, and recurring items given.
+- Call out recurring/subscription-like spending and whether it looks healthy.
+- Be honest but supportive. No fluff, no generic advice.
+
+Output STRICT JSON only, in this exact shape:
+{
+  "headline": "one punchy sentence summarizing their financial picture",
+  "paragraphs": ["2 to 3 short paragraphs of narrative analysis"],
+  "bullets": ["4 to 6 short, specific, actionable insight bullets"]
+}"""
+
+    deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+    try:
+        response = client.chat.completions.create(
+            model=deployment_name,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(stats, default=str)},
+            ],
+        )
+        data = json.loads(response.choices[0].message.content)
+        return {
+            "headline": data.get("headline", "Here's your spending review."),
+            "paragraphs": data.get("paragraphs", []) or [],
+            "bullets": data.get("bullets", []) or [],
+        }
+    except Exception as e:
+        print(f"Error generating report summary: {e}")
+        return _fallback_summary(stats)
+
+
+def _fallback_summary(stats: dict) -> dict:
+    """Rule-based summary used when the AI call is unavailable."""
+    totals = stats.get("totals", {})
+    income = totals.get("total_income", 0) or 0
+    expenses = totals.get("total_expenses", 0) or 0
+    net = income - expenses
+    top_cats = stats.get("by_category", [])[:3]
+    recurring = stats.get("recurring", [])
+
+    bullets = []
+    if top_cats:
+        c = top_cats[0]
+        bullets.append(
+            f"Your biggest spend is {c['category'].title()} at ₹{c['total']:,.0f} "
+            f"({c['pct']:.0f}% of all spending)."
+        )
+    if recurring:
+        bullets.append(
+            f"You have {len(recurring)} recurring item(s) — e.g. "
+            + ", ".join(r["label"] for r in recurring[:3]) + "."
+        )
+    savings_rate = (net / income * 100) if income else 0
+    bullets.append(
+        f"Over this period you saved ₹{net:,.0f} "
+        f"({savings_rate:.0f}% of income)."
+        if net >= 0 else
+        f"You spent ₹{abs(net):,.0f} more than you earned this period — worth reviewing."
+    )
+    return {
+        "headline": (
+            f"You've tracked ₹{expenses:,.0f} across {totals.get('months_count', 0)} months."
+        ),
+        "paragraphs": [
+            "Here is an automated overview of your spending. "
+            "Connect the AI engine for a richer, personalized narrative."
+        ],
+        "bullets": bullets,
+    }
