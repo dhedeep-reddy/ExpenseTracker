@@ -165,10 +165,10 @@ def build_analysis(db: Session, user_id: int) -> dict:
 #  JSON endpoint (drives the on-screen report)
 # ──────────────────────────────────────────────────────────────
 
-@router.get("/analysis")
-def get_analysis(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    analysis = build_analysis(db, current_user.id)
-    # Attach the AI narrative. Give the model a trimmed view to keep tokens low.
+def _analysis_with_summary(db: Session, user_id: int) -> dict:
+    """Build the full analysis and attach the AI narrative summary."""
+    analysis = build_analysis(db, user_id)
+    # Give the model a trimmed view to keep tokens low.
     stats_for_ai = {
         "totals": analysis["totals"],
         "date_range": analysis["date_range"],
@@ -180,22 +180,18 @@ def get_analysis(current_user: dict = Depends(get_current_user), db: Session = D
     return analysis
 
 
+@router.get("/analysis")
+def get_analysis(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _analysis_with_summary(db, current_user.id)
+
+
 # ──────────────────────────────────────────────────────────────
 #  PDF export
 # ──────────────────────────────────────────────────────────────
 
 @router.get("/pdf")
 def get_pdf(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    analysis = build_analysis(db, current_user.id)
-    stats_for_ai = {
-        "totals": analysis["totals"],
-        "date_range": analysis["date_range"],
-        "by_category": analysis["by_category"][:8],
-        "recurring": analysis["recurring"][:10],
-        "by_month": analysis["by_month"][-6:],
-    }
-    analysis["summary"] = generate_report_summary(stats_for_ai)
-
+    analysis = _analysis_with_summary(db, current_user.id)
     pdf_bytes = build_pdf(analysis, username=current_user.username)
     filename = f"FinAI-Report-{datetime.utcnow().strftime('%Y%m%d')}.pdf"
     return StreamingResponse(
@@ -203,6 +199,83 @@ def get_pdf(current_user: dict = Depends(get_current_user), db: Session = Depend
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ──────────────────────────────────────────────────────────────
+#  Email export
+# ──────────────────────────────────────────────────────────────
+
+class EmailRequest(BaseModel):
+    to: str
+
+
+@router.post("/email")
+def email_report(
+    body: EmailRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    import os
+    import smtplib
+    from email.message import EmailMessage
+    from fastapi import HTTPException
+
+    recipient = (body.to or "").strip()
+    if "@" not in recipient or "." not in recipient:
+        raise HTTPException(status_code=400, detail="Please provide a valid email address.")
+
+    host = os.getenv("SMTP_HOST")
+    port = int(os.getenv("SMTP_PORT", "587"))
+    user = os.getenv("SMTP_USER")
+    password = os.getenv("SMTP_PASS")
+    sender = os.getenv("SMTP_FROM", user or "")
+
+    if not (host and user and password):
+        raise HTTPException(
+            status_code=503,
+            detail="Email is not configured on the server. Set SMTP_HOST, SMTP_USER and SMTP_PASS.",
+        )
+
+    analysis = _analysis_with_summary(db, current_user.id)
+    pdf_bytes = build_pdf(analysis, username=current_user.username)
+
+    rng = analysis.get("date_range")
+    range_txt = f"{rng['from']} — {rng['to']}" if rng else "your account"
+    summary = analysis.get("summary", {})
+    bullets_html = "".join(f"<li>{b}</li>" for b in summary.get("bullets", [])[:6])
+
+    msg = EmailMessage()
+    msg["Subject"] = f"Your FinAI Financial Report ({range_txt})"
+    msg["From"] = sender
+    msg["To"] = recipient
+    msg.set_content(
+        f"{summary.get('headline', 'Here is your FinAI financial report.')}\n\n"
+        "Your full report is attached as a PDF.\n\n— FinAI"
+    )
+    msg.add_alternative(
+        f"""<div style="font-family:Arial,sans-serif;color:#0f172a">
+        <h2 style="color:#3b82f6">⚡ FinAI — Financial Report</h2>
+        <p style="font-size:15px"><strong>{summary.get('headline', '')}</strong></p>
+        <p style="color:#475569">Period: {range_txt}</p>
+        <ul style="color:#475569;font-size:14px">{bullets_html}</ul>
+        <p style="color:#475569;font-size:14px">Your full report — tables, charts and recurring spending — is attached as a PDF.</p>
+        <p style="color:#94a3b8;font-size:12px">Sent by FinAI</p>
+        </div>""",
+        subtype="html",
+    )
+    filename = f"FinAI-Report-{datetime.utcnow().strftime('%Y%m%d')}.pdf"
+    msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=filename)
+
+    try:
+        with smtplib.SMTP(host, port, timeout=30) as server:
+            server.starttls()
+            server.login(user, password)
+            server.send_message(msg)
+    except Exception as e:
+        print(f"Email send failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not send the email: {e}")
+
+    return {"message": f"Report emailed to {recipient}", "to": recipient}
 
 
 def build_pdf(analysis: dict, username: str = "") -> bytes:

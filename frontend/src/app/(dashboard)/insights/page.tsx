@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 import api from '@/lib/api';
 import {
     SparklesIcon, ArrowDownTrayIcon, ArrowPathIcon, ArrowTrendingUpIcon,
+    EnvelopeIcon, PaperAirplaneIcon, XMarkIcon,
 } from '@heroicons/react/24/solid';
 import {
     PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip,
@@ -36,6 +37,15 @@ export default function InsightsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(false);
     const [downloading, setDownloading] = useState(false);
+    const [showEmail, setShowEmail] = useState(false);
+    const [emailTo, setEmailTo] = useState('');
+    const [emailSending, setEmailSending] = useState(false);
+    const [emailStatus, setEmailStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+
+    useEffect(() => {
+        const saved = typeof window !== 'undefined' ? localStorage.getItem('finai_report_email') : null;
+        if (saved) setEmailTo(saved);
+    }, []);
 
     const fetchAnalysis = async () => {
         setLoading(true); setError(false);
@@ -69,6 +79,24 @@ export default function InsightsPage() {
             alert('Could not generate the PDF. Please try again.');
         } finally {
             setDownloading(false);
+        }
+    };
+
+    const sendEmail = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const to = emailTo.trim();
+        if (!to) return;
+        setEmailSending(true); setEmailStatus(null);
+        try {
+            const res = await api.post('/reports/email', { to });
+            localStorage.setItem('finai_report_email', to);
+            setEmailStatus({ ok: true, msg: res.data?.message || `Report emailed to ${to}` });
+            setTimeout(() => { setShowEmail(false); setEmailStatus(null); }, 2500);
+        } catch (err: any) {
+            const detail = err?.response?.data?.detail || 'Could not send the email. Please try again.';
+            setEmailStatus({ ok: false, msg: detail });
+        } finally {
+            setEmailSending(false);
         }
     };
 
@@ -114,6 +142,10 @@ export default function InsightsPage() {
                         className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
                         <ArrowPathIcon className="h-4 w-4" /> Refresh
                     </button>
+                    <button onClick={() => { setShowEmail(v => !v); setEmailStatus(null); }} disabled={!hasData}
+                        className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-60 transition-colors">
+                        <EnvelopeIcon className="h-4 w-4" /> Email
+                    </button>
                     <button onClick={downloadPdf} disabled={downloading || !hasData}
                         className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors">
                         <ArrowDownTrayIcon className="h-4 w-4" />
@@ -121,6 +153,42 @@ export default function InsightsPage() {
                     </button>
                 </div>
             </div>
+
+            {/* Email panel */}
+            {showEmail && hasData && (
+                <Card className="border-brand/30">
+                    <CardContent className="pt-5">
+                        <form onSubmit={sendEmail} className="flex flex-col sm:flex-row sm:items-center gap-3">
+                            <div className="flex items-center gap-2 text-sm font-medium text-slate-700 shrink-0">
+                                <EnvelopeIcon className="h-5 w-5 text-brand" /> Email this report to:
+                            </div>
+                            <input
+                                type="email" required autoFocus value={emailTo}
+                                onChange={e => setEmailTo(e.target.value)}
+                                placeholder="you@example.com"
+                                className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                            />
+                            <div className="flex gap-2">
+                                <button type="submit" disabled={emailSending}
+                                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors">
+                                    <PaperAirplaneIcon className="h-4 w-4" />
+                                    {emailSending ? 'Sending…' : 'Send'}
+                                </button>
+                                <button type="button" onClick={() => setShowEmail(false)}
+                                    className="p-2 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors">
+                                    <XMarkIcon className="h-4 w-4" />
+                                </button>
+                            </div>
+                        </form>
+                        {emailStatus && (
+                            <p className={`mt-3 text-sm ${emailStatus.ok ? 'text-emerald-600' : 'text-red-600'}`}>
+                                {emailStatus.ok ? '✓ ' : '⚠ '}{emailStatus.msg}
+                            </p>
+                        )}
+                        <p className="mt-2 text-xs text-slate-400">The PDF (tables, charts, recurring spending &amp; AI summary) will be attached.</p>
+                    </CardContent>
+                </Card>
+            )}
 
             {!hasData ? (
                 <Card><CardContent className="py-16 text-center text-slate-400">
