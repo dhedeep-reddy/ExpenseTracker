@@ -21,9 +21,16 @@ class NLPReminderAction(BaseModel):
     type: str = Field(default="CUSTOM", description="LOAN, BILL, SUBSCRIPTION, or CUSTOM")
     notes: Optional[str] = Field(None, description="Any extra notes")
 
+class NLPReportAction(BaseModel):
+    action: Optional[str] = Field(None, description="'email' or 'download'")
+    scope: Optional[str] = Field(None, description="'analysis', 'transactions', or 'both'")
+    months: Optional[List[str]] = Field(None, description="List of 'YYYY-MM' months; null = all months")
+    to: Optional[str] = Field(None, description="Email address if the user specified one")
+
 class NLPResponse(BaseModel):
     transactions: List[NLPTransaction] = Field(default=[], description="List of financial transactions extracted")
     reminder_actions: List[NLPReminderAction] = Field(default=[], description="List of reminder/loan actions to perform")
+    report_action: Optional[NLPReportAction] = Field(None, description="Report export/email request, if any")
     general_query: Optional[str] = Field(None, description="Question the user is asking")
     clarification_needed: Optional[str] = Field(None, description="Question to ask user if ambiguous")
     ai_insight: Optional[str] = Field(None, description="Conversational reply or data answer")

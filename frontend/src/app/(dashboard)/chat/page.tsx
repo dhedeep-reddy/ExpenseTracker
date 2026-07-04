@@ -117,6 +117,7 @@ const SUGGESTED = [
     { emoji: '🔔', text: 'Add a reminder: rent 12000 due on 1st next month' },
     { emoji: '✅', text: 'I paid the electricity bill' },
     { emoji: '📊', text: 'How much have I spent so far? Break it down by category' },
+    { emoji: '📄', text: "Email me this month's report as a PDF" },
 ];
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -154,6 +155,38 @@ export default function ChatPage() {
             .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
     }, []);
 
+    // Perform a report download/email requested via chat
+    const handleReportAction = useCallback(async (ra: any) => {
+        const scope = ra?.scope || 'both';
+        const sections = scope === 'analysis' ? 'analysis' : scope === 'transactions' ? 'transactions' : 'full';
+        const months: string[] | null = ra?.months && ra.months.length ? ra.months : null;
+        const pushSys = (content: string) => setMessages(prev => [...prev, {
+            id: (Date.now() + Math.random()).toString(), role: 'assistant', content, timestamp: new Date(),
+        }]);
+        try {
+            if (ra?.action === 'download') {
+                const params: Record<string, string> = { sections };
+                if (months) params.months = months.join(',');
+                const res = await api.get('/reports/pdf', { params, responseType: 'blob' });
+                const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `FinAI-Report-${new Date().toISOString().slice(0, 10)}.pdf`;
+                document.body.appendChild(a); a.click(); a.remove();
+                window.URL.revokeObjectURL(url);
+                pushSys('📄 Your PDF has been downloaded.');
+            } else if (ra?.action === 'email') {
+                const to = (ra.to || localStorage.getItem('finai_report_email') || '').trim();
+                if (!to) { pushSys('📧 What email address should I send it to?'); return; }
+                const res = await api.post('/reports/email', { to, months, sections });
+                localStorage.setItem('finai_report_email', to);
+                pushSys(`✅ ${res.data?.message || `Report emailed to ${to}`}`);
+            }
+        } catch (err: any) {
+            pushSys(`⚠ ${err?.response?.data?.detail || 'Sorry, I could not complete that report request.'}`);
+        }
+    }, []);
+
     const sendMessage = useCallback(async (text: string) => {
         const trimmed = text.trim();
         if (!trimmed || isLoading) return;
@@ -183,6 +216,10 @@ export default function ChatPage() {
                 timestamp: new Date(),
             };
             setMessages(prev => [...prev, aiMsg]);
+
+            if (res.data.report_action) {
+                await handleReportAction(res.data.report_action);
+            }
         } catch (err: any) {
             const errMsg: Message = {
                 id: (Date.now() + 1).toString(),
@@ -197,7 +234,7 @@ export default function ChatPage() {
             setIsLoading(false);
             setTimeout(() => textareaRef.current?.focus(), 50);
         }
-    }, [messages, isLoading, buildHistory]);
+    }, [messages, isLoading, buildHistory, handleReportAction]);
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === 'Enter' && !e.shiftKey) {

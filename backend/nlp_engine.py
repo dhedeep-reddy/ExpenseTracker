@@ -65,6 +65,23 @@ Reminder types: LOAN, BILL, SUBSCRIPTION, CUSTOM
 CRITICAL: If the user mentions paying a future bill, a loan, an EMI, or wants to be reminded of something → put it in `reminder_actions[]`, NOT in `transactions[]` (unless they say they already paid it, in which case use both — create an EXPENSE transaction AND mark_paid the reminder).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REPORT / EXPORT REQUESTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Use `report_action` when the user asks to DOWNLOAD or EMAIL a report, summary, analysis, or their transactions/expense table.
+Examples: "email me this month's report", "download a pdf of May and June", "send my analysis to x@y.com", "mail me the expense table for last month".
+
+Fields:
+- action: "email" if they want it mailed, "download" if they want a file/PDF.
+- scope: "analysis" (charts, summary, insights), "transactions" (the full expense line-item table), or "both".
+- months: list of "YYYY-MM" resolved from CURRENT SYSTEM TIME (e.g. "this month", "May", "last month", "May and June"). Use null for all-time / everything.
+- to: the email address if the user gave one; otherwise null (the app uses their saved address).
+
+CRITICAL — scope clarification:
+- If the user does NOT make clear whether they want the ANALYSIS, the TRANSACTION TABLE, or BOTH, DO NOT set report_action. Instead set `clarification_needed` to exactly: "Do you want the analysis & insights, the full transaction table, or both?" and set ai_insight to that same question.
+- Use the CONVERSATION so far to resolve follow-ups: if you already asked and the user replies "both" / "just transactions" / "the analysis", combine it with what they asked earlier (which months, email vs download) and produce the full report_action.
+- Once scope is clear, set report_action AND a short confirming ai_insight (e.g. "Sure — preparing your May & June transaction PDF now. 📄").
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CONVERSATION RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. Always be warm, concise, and friendly.
@@ -83,10 +100,13 @@ OUTPUT FORMAT (strict JSON, all fields present, null for unused)
   "reminder_actions": [
     {{"action": "create", "title": "Rent Payment", "amount": 12000, "due_date": "2026-03-01T00:00:00", "type": "BILL", "notes": null}}
   ],
+  "report_action": null,
   "general_query": null,
   "clarification_needed": null,
   "ai_insight": "Got it! Logged ₹500 for food. 🍽️"
 }}
+
+(report_action example when the user says "download both for May": {{"action": "download", "scope": "both", "months": ["2026-05"], "to": null}})
 """
 
     messages = [{"role": "system", "content": system_prompt}]
@@ -127,21 +147,31 @@ def generate_report_summary(stats: dict) -> dict:
     headline (str), paragraphs (list[str]), bullets (list[str]).
     Falls back to a rule-based summary if the AI call fails."""
 
-    system_prompt = """You are FinAI, a warm and sharp personal-finance analyst.
-You are given pre-computed statistics about a user's ENTIRE spending history across many months.
-Write a concise, encouraging, and genuinely useful financial review.
+    system_prompt = """You are FinAI, a sharp personal-finance analyst. You are given pre-computed
+statistics scoped to a SPECIFIC set of months the user selected (see `selected_months`).
+Write a precise, data-driven review of ONLY those months.
 
-Rules:
-- Use Indian Rupees (₹) and Indian number formatting.
-- Be specific: reference the actual numbers, categories, and recurring items given.
-- Call out recurring/subscription-like spending and whether it looks healthy.
-- Be honest but supportive. No fluff, no generic advice.
+The stats include:
+- `totals`, `by_category` (each flagged `compulsory` = fixed/committed cost),
+- `fixed_vs_variable`: how much is committed (rent, recharge, utilities, EMI...) vs discretionary,
+- `category_by_month`: each category's spend in each selected month + `delta_first_to_last`,
+- `recurring`: repeated items with cadence, occurrences, avg and total,
+- `by_month`: income/expense/net per selected month.
+
+Rules — this is the important part:
+- Use Indian Rupees (₹) and Indian formatting.
+- Be CONCRETE and QUANTITATIVE. Every claim must cite a real number from the data.
+- COMPARE months when more than one is selected: e.g. "Food rose from ₹X in May to ₹Y in June (+₹Z)". Use `category_by_month` / `delta_first_to_last`.
+- Clearly separate COMMITTED/FIXED costs (compulsory categories like rent, mobile recharge, utilities, EMI) from DISCRETIONARY spending (food, travel, shopping, entertainment). State each as ₹ and % of expenses using `fixed_vs_variable`.
+- Name the top discretionary drains and the biggest month-over-month movers specifically.
+- NO generic advice ("save more", "budget wisely"). Every bullet must reference a specific category, item, month or amount from the data.
+- Be honest but not preachy.
 
 Output STRICT JSON only, in this exact shape:
 {
-  "headline": "one punchy sentence summarizing their financial picture",
-  "paragraphs": ["2 to 3 short paragraphs of narrative analysis"],
-  "bullets": ["4 to 6 short, specific, actionable insight bullets"]
+  "headline": "one specific, number-backed sentence about these months",
+  "paragraphs": ["2 to 3 short paragraphs: overview, fixed-vs-discretionary split, and month-over-month movement"],
+  "bullets": ["4 to 6 specific bullets, each citing a real category/item/month/amount"]
 }"""
 
     deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")

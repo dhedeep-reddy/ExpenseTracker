@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from database import get_db, Cycle, Transaction, CategoryBudget, Reminder, ReminderType
@@ -17,6 +17,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     response: str
+    report_action: Optional[Dict[str, Any]] = None
 
 @router.post("/", response_model=ChatResponse)
 def process_chat(req: ChatRequest, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -150,6 +151,17 @@ def process_chat(req: ChatRequest, current_user: dict = Depends(get_current_user
             except Exception as re:
                 reminder_responses.append(f"Error processing reminder: {str(re)}")
 
+        # Report/export action (download or email) — passed to the frontend to act on.
+        # Only actionable when both the action and a valid scope are present; otherwise
+        # force a scope clarification rather than guessing.
+        report_action = None
+        ra_obj = nlp_response.report_action
+        if ra_obj and ra_obj.action in ("email", "download"):
+            if ra_obj.scope in ("analysis", "transactions", "both"):
+                report_action = ra_obj.dict()
+            else:
+                nlp_response.ai_insight = "Do you want the analysis & insights, the full transaction table, or both?"
+
         # Combine all responses
         parts = []
         if tx_response and tx_response != "No valid transactions found.":
@@ -160,11 +172,11 @@ def process_chat(req: ChatRequest, current_user: dict = Depends(get_current_user
         if nlp_response.ai_insight:
             final_insight = nlp_response.ai_insight
             if parts:
-                return ChatResponse(response="\n\n".join(parts) + "\n\n" + final_insight)
+                return ChatResponse(response="\n\n".join(parts) + "\n\n" + final_insight, report_action=report_action)
             else:
-                return ChatResponse(response=final_insight)
+                return ChatResponse(response=final_insight, report_action=report_action)
         else:
-            return ChatResponse(response="\n\n".join(parts) if parts else "Got it!")
+            return ChatResponse(response="\n\n".join(parts) if parts else "Got it!", report_action=report_action)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

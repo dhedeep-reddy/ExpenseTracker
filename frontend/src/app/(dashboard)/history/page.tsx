@@ -2,7 +2,10 @@
 import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 import api from '@/lib/api';
-import { CalendarDaysIcon, ChevronDownIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
+import {
+    CalendarDaysIcon, ChevronDownIcon, ChevronRightIcon,
+    ArrowDownTrayIcon, EnvelopeIcon, PaperAirplaneIcon, XMarkIcon,
+} from '@heroicons/react/24/outline';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend,
     PieChart, Pie, Cell, LineChart, Line
@@ -55,12 +58,70 @@ export default function HistoryPage() {
     const [monthTxs, setMonthTxs] = useState<Record<string, Transaction[]>>({});
     const [loadingMonth, setLoadingMonth] = useState<string | null>(null);
 
+    // Export state
+    const [picked, setPicked] = useState<Set<string>>(new Set());
+    const [downloading, setDownloading] = useState(false);
+    const [showEmail, setShowEmail] = useState(false);
+    const [emailTo, setEmailTo] = useState('');
+    const [emailSending, setEmailSending] = useState(false);
+    const [emailStatus, setEmailStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+
     useEffect(() => {
         api.get('/analytics/monthly-history')
             .then(res => setData(res.data))
             .catch(console.error)
             .finally(() => setLoading(false));
+        const saved = typeof window !== 'undefined' ? localStorage.getItem('finai_report_email') : null;
+        if (saved) setEmailTo(saved);
     }, []);
+
+    const togglePick = (month: string) => {
+        setPicked(prev => {
+            const next = new Set(prev);
+            next.has(month) ? next.delete(month) : next.add(month);
+            return next;
+        });
+    };
+    // Months to export: the picked ones, or all if none picked.
+    const exportMonths = (): string[] => picked.size > 0 ? [...picked] : data.map(d => d.month);
+
+    const downloadPdf = async () => {
+        setDownloading(true);
+        try {
+            const res = await api.get('/reports/pdf', {
+                params: { months: exportMonths().join(',') },
+                responseType: 'blob',
+            });
+            const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `FinAI-Transactions-${new Date().toISOString().slice(0, 10)}.pdf`;
+            document.body.appendChild(a); a.click(); a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error('PDF download failed', err);
+            alert('Could not generate the PDF. Please try again.');
+        } finally {
+            setDownloading(false);
+        }
+    };
+
+    const sendEmail = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const to = emailTo.trim();
+        if (!to) return;
+        setEmailSending(true); setEmailStatus(null);
+        try {
+            const res = await api.post('/reports/email', { to, months: exportMonths() });
+            localStorage.setItem('finai_report_email', to);
+            setEmailStatus({ ok: true, msg: res.data?.message || `Report emailed to ${to}` });
+            setTimeout(() => { setShowEmail(false); setEmailStatus(null); }, 2500);
+        } catch (err: any) {
+            setEmailStatus({ ok: false, msg: err?.response?.data?.detail || 'Could not send the email.' });
+        } finally {
+            setEmailSending(false);
+        }
+    };
 
     const toggleMonth = async (month: string) => {
         if (expanded === month) {
@@ -100,13 +161,52 @@ export default function HistoryPage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div>
-                <h2 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-                    <CalendarDaysIcon className="h-7 w-7 text-brand" />
-                    Monthly History
-                </h2>
-                <p className="text-sm text-slate-500 mt-1">Income and expenses grouped by calendar month across all your cycles.</p>
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div>
+                    <h2 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+                        <CalendarDaysIcon className="h-7 w-7 text-brand" />
+                        Monthly History
+                    </h2>
+                    <p className="text-sm text-slate-500 mt-1">
+                        Income and expenses grouped by calendar month.{' '}
+                        {picked.size > 0
+                            ? <span className="text-brand font-medium">{picked.size} month{picked.size > 1 ? 's' : ''} selected for export.</span>
+                            : <span className="text-slate-400">Tick months to export, or export all.</span>}
+                    </p>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                    <button onClick={() => { setShowEmail(v => !v); setEmailStatus(null); }} disabled={data.length === 0}
+                        className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-60 transition-colors">
+                        <EnvelopeIcon className="h-4 w-4" /> Email
+                    </button>
+                    <button onClick={downloadPdf} disabled={downloading || data.length === 0}
+                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors">
+                        <ArrowDownTrayIcon className="h-4 w-4" /> {downloading ? 'Generating…' : `Download PDF${picked.size > 0 ? ` (${picked.size})` : ''}`}
+                    </button>
+                </div>
             </div>
+
+            {/* Email panel */}
+            {showEmail && data.length > 0 && (
+                <Card className="border-brand/30">
+                    <CardContent className="pt-5">
+                        <form onSubmit={sendEmail} className="flex flex-col sm:flex-row sm:items-center gap-3">
+                            <div className="flex items-center gap-2 text-sm font-medium text-slate-700 shrink-0">
+                                <EnvelopeIcon className="h-5 w-5 text-brand" /> Email transactions for {picked.size > 0 ? `${picked.size} selected month${picked.size > 1 ? 's' : ''}` : 'all months'} to:
+                            </div>
+                            <input type="email" required autoFocus value={emailTo} onChange={e => setEmailTo(e.target.value)} placeholder="you@example.com"
+                                className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
+                            <div className="flex gap-2">
+                                <button type="submit" disabled={emailSending} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors">
+                                    <PaperAirplaneIcon className="h-4 w-4" /> {emailSending ? 'Sending…' : 'Send'}
+                                </button>
+                                <button type="button" onClick={() => setShowEmail(false)} className="p-2 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"><XMarkIcon className="h-4 w-4" /></button>
+                            </div>
+                        </form>
+                        {emailStatus && <p className={`mt-3 text-sm ${emailStatus.ok ? 'text-emerald-600' : 'text-red-600'}`}>{emailStatus.ok ? '✓ ' : '⚠ '}{emailStatus.msg}</p>}
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -157,6 +257,7 @@ export default function HistoryPage() {
                         <thead className="bg-slate-50 border-b border-slate-200">
                             <tr>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase w-8" />
+                                <th className="px-2 py-3 text-center text-xs font-medium text-slate-500 uppercase w-8" title="Select for export">✓</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Month</th>
                                 <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Income</th>
                                 <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Expenses</th>
@@ -167,7 +268,7 @@ export default function HistoryPage() {
                         <tbody>
                             {data.length === 0 && (
                                 <tr>
-                                    <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
+                                    <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
                                         No history yet. Start logging transactions!
                                     </td>
                                 </tr>
@@ -181,6 +282,10 @@ export default function HistoryPage() {
                                             {expanded === row.month
                                                 ? <ChevronDownIcon className="h-4 w-4" />
                                                 : <ChevronRightIcon className="h-4 w-4" />}
+                                        </td>
+                                        <td className="px-2 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                            <input type="checkbox" checked={picked.has(row.month)} onChange={() => togglePick(row.month)}
+                                                className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand cursor-pointer" />
                                         </td>
                                         <td className="px-4 py-3.5 font-semibold text-slate-800">{row.label}</td>
                                         <td className="px-4 py-3.5 text-right font-medium text-emerald-600">
@@ -196,7 +301,7 @@ export default function HistoryPage() {
                                     </tr>
                                     {expanded === row.month && (
                                         <tr>
-                                            <td colSpan={6} className="px-0 py-0 bg-slate-50/80">
+                                            <td colSpan={7} className="px-0 py-0 bg-slate-50/80">
                                                 {loadingMonth === row.month ? (
                                                     <div className="p-6 text-center text-slate-400 text-sm animate-pulse">Loading transactions…</div>
                                                 ) : monthTxs[row.month]?.length > 0 ? (
@@ -349,6 +454,7 @@ export default function HistoryPage() {
                         {data.length > 0 && (
                             <tfoot className="bg-slate-100 border-t-2 border-slate-300">
                                 <tr>
+                                    <td />
                                     <td />
                                     <td className="px-4 py-3 font-bold text-slate-800">Total</td>
                                     <td className="px-4 py-3 text-right font-bold text-emerald-700">+₹{totalIncome.toLocaleString('en-IN')}</td>

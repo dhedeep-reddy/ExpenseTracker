@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 import api from '@/lib/api';
 import {
     SparklesIcon, ArrowDownTrayIcon, ArrowPathIcon, ArrowTrendingUpIcon,
-    EnvelopeIcon, PaperAirplaneIcon, XMarkIcon,
+    EnvelopeIcon, PaperAirplaneIcon, XMarkIcon, LockClosedIcon,
 } from '@heroicons/react/24/solid';
 import {
     PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip,
@@ -13,27 +13,39 @@ import {
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#f97316', '#14b8a6'];
 
+interface MonthOpt { month: string; label: string; }
 interface Analysis {
     generated_at: string;
     date_range: { from: string; to: string } | null;
+    available_months: MonthOpt[];
+    selected_months: string[];
+    selected_labels: string[];
     totals: {
         total_income: number; total_expenses: number; net: number;
         months_count: number; txn_count: number; avg_monthly_expense: number;
         recurring_monthly_estimate: number;
     };
     by_month: { month: string; label: string; income: number; expenses: number; net: number; count: number }[];
-    by_category: { category: string; total: number; count: number; pct: number }[];
+    by_category: { category: string; total: number; count: number; pct: number; compulsory: boolean }[];
+    category_by_month: { category: string; compulsory: boolean; per_month: Record<string, number>; total: number; delta_first_to_last: number }[];
+    fixed_vs_variable: {
+        fixed_total: number; variable_total: number; fixed_pct: number; variable_pct: number;
+        fixed_categories: string[]; variable_categories: string[];
+    };
     recurring: {
-        label: string; category: string; description: string; occurrences: number; months_seen: number;
+        label: string; category: string; compulsory: boolean; occurrences: number; months_seen: number;
         avg_amount: number; total_amount: number; cadence: string; last_date: string; last_amount: number;
     }[];
     summary: { headline: string; paragraphs: string[]; bullets: string[] };
 }
 
 const inr = (v: number) => `₹${Math.round(v).toLocaleString('en-IN')}`;
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export default function InsightsPage() {
     const [analysis, setAnalysis] = useState<Analysis | null>(null);
+    const [months, setMonths] = useState<MonthOpt[]>([]);
+    const [selected, setSelected] = useState<string[] | null>(null); // null = all
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(false);
     const [downloading, setDownloading] = useState(false);
@@ -47,11 +59,24 @@ export default function InsightsPage() {
         if (saved) setEmailTo(saved);
     }, []);
 
-    const fetchAnalysis = async () => {
+    // The set of months currently applied (null → treat as all available).
+    const appliedMonths = (): string[] | undefined => {
+        if (!selected) return undefined;
+        if (months.length && selected.length === months.length) return undefined;
+        return selected;
+    };
+
+    const fetchAnalysis = async (sel?: string[] | null) => {
         setLoading(true); setError(false);
         try {
-            const res = await api.get('/reports/analysis');
-            setAnalysis(res.data);
+            const useSel = sel === undefined ? selected : sel;
+            const params: Record<string, string> = {};
+            if (useSel && months.length && useSel.length < months.length) params.months = useSel.join(',');
+            const res = await api.get('/reports/analysis', { params });
+            const data: Analysis = res.data;
+            setAnalysis(data);
+            if (months.length === 0) setMonths(data.available_months);
+            if (selected === null) setSelected(data.available_months.map(m => m.month));
         } catch (err) {
             console.error('Failed to load analysis', err);
             setError(true);
@@ -60,19 +85,30 @@ export default function InsightsPage() {
         }
     };
 
-    useEffect(() => { fetchAnalysis(); }, []);
+    useEffect(() => { fetchAnalysis(null); /* eslint-disable-next-line */ }, []);
+
+    const toggleMonth = (m: string) => {
+        const cur = selected ?? months.map(x => x.month);
+        const next = cur.includes(m) ? cur.filter(x => x !== m) : [...cur, m];
+        if (next.length === 0) return; // keep at least one
+        setSelected(next);
+        fetchAnalysis(next);
+    };
+    const selectAll = () => { const all = months.map(m => m.month); setSelected(all); fetchAnalysis(all); };
+    const isSel = (m: string) => (selected ?? months.map(x => x.month)).includes(m);
 
     const downloadPdf = async () => {
         setDownloading(true);
         try {
-            const res = await api.get('/reports/pdf', { responseType: 'blob' });
+            const params: Record<string, string> = {};
+            const sel = appliedMonths();
+            if (sel) params.months = sel.join(',');
+            const res = await api.get('/reports/pdf', { params, responseType: 'blob' });
             const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
             const a = document.createElement('a');
             a.href = url;
             a.download = `FinAI-Report-${new Date().toISOString().slice(0, 10)}.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
+            document.body.appendChild(a); a.click(); a.remove();
             window.URL.revokeObjectURL(url);
         } catch (err) {
             console.error('PDF download failed', err);
@@ -88,40 +124,37 @@ export default function InsightsPage() {
         if (!to) return;
         setEmailSending(true); setEmailStatus(null);
         try {
-            const res = await api.post('/reports/email', { to });
+            const res = await api.post('/reports/email', { to, months: appliedMonths() ?? null });
             localStorage.setItem('finai_report_email', to);
             setEmailStatus({ ok: true, msg: res.data?.message || `Report emailed to ${to}` });
             setTimeout(() => { setShowEmail(false); setEmailStatus(null); }, 2500);
         } catch (err: any) {
-            const detail = err?.response?.data?.detail || 'Could not send the email. Please try again.';
-            setEmailStatus({ ok: false, msg: detail });
+            setEmailStatus({ ok: false, msg: err?.response?.data?.detail || 'Could not send the email.' });
         } finally {
             setEmailSending(false);
         }
     };
 
-    if (loading) return <div className="p-8 text-center text-slate-500 animate-pulse">Analyzing your entire financial history…</div>;
-
+    if (loading && !analysis) return <div className="p-8 text-center text-slate-500 animate-pulse">Analyzing your financial history…</div>;
     if (error || !analysis) return (
         <div className="p-8 text-center">
             <p className="text-red-500 mb-4">Couldn't build your report. The backend may be warming up.</p>
-            <button onClick={fetchAnalysis} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Retry</button>
+            <button onClick={() => fetchAnalysis(null)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Retry</button>
         </div>
     );
 
     const t = analysis.totals;
     const hasData = t.txn_count > 0;
+    const fv = analysis.fixed_vs_variable;
+    const selCount = (selected ?? months.map(m => m.month)).length;
 
-    // Financial health score (0-100), mostly driven by savings rate.
     const savingsRate = t.total_income > 0 ? t.net / t.total_income : 0;
     const healthScore = Math.min(100, Math.max(0, Math.round(40 + savingsRate * 200)));
     const scoreLabel = healthScore > 70 ? 'Strong' : healthScore > 40 ? 'Stable' : 'Needs work';
     const scoreColor = healthScore > 70 ? '#10b981' : healthScore > 40 ? '#f59e0b' : '#ef4444';
 
-    const categoryData = analysis.by_category.slice(0, 8).map(c => ({
-        name: c.category.charAt(0).toUpperCase() + c.category.slice(1), value: c.total,
-    }));
-    const monthData = analysis.by_month.slice(-12);
+    const categoryData = analysis.by_category.slice(0, 8).map(c => ({ name: cap(c.category), value: c.total }));
+    const monthData = analysis.by_month;
 
     return (
         <div className="space-y-6">
@@ -129,17 +162,16 @@ export default function InsightsPage() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-                        <SparklesIcon className="h-6 w-6 text-brand" />
-                        Reports &amp; Insights
+                        <SparklesIcon className="h-6 w-6 text-brand" /> Reports &amp; Insights
                     </h2>
                     <p className="text-sm text-slate-500 mt-1">
-                        AI analysis across {t.months_count} month{t.months_count === 1 ? '' : 's'}
-                        {analysis.date_range && ` · ${analysis.date_range.from} → ${analysis.date_range.to}`}
+                        {selCount === months.length ? 'All months' : `${selCount} of ${months.length} months`}
+                        {analysis.selected_labels.length > 0 &&
+                            ` · ${analysis.selected_labels[0]}${analysis.selected_labels.length > 1 ? ` → ${analysis.selected_labels[analysis.selected_labels.length - 1]}` : ''}`}
                     </p>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={fetchAnalysis}
-                        className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+                    <button onClick={() => fetchAnalysis()} className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
                         <ArrowPathIcon className="h-4 w-4" /> Refresh
                     </button>
                     <button onClick={() => { setShowEmail(v => !v); setEmailStatus(null); }} disabled={!hasData}
@@ -148,55 +180,40 @@ export default function InsightsPage() {
                     </button>
                     <button onClick={downloadPdf} disabled={downloading || !hasData}
                         className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors">
-                        <ArrowDownTrayIcon className="h-4 w-4" />
-                        {downloading ? 'Generating…' : 'Download PDF'}
+                        <ArrowDownTrayIcon className="h-4 w-4" /> {downloading ? 'Generating…' : 'Download PDF'}
                     </button>
                 </div>
             </div>
 
-            {/* Email panel */}
-            {showEmail && hasData && (
-                <Card className="border-brand/30">
-                    <CardContent className="pt-5">
-                        <form onSubmit={sendEmail} className="flex flex-col sm:flex-row sm:items-center gap-3">
-                            <div className="flex items-center gap-2 text-sm font-medium text-slate-700 shrink-0">
-                                <EnvelopeIcon className="h-5 w-5 text-brand" /> Email this report to:
-                            </div>
-                            <input
-                                type="email" required autoFocus value={emailTo}
-                                onChange={e => setEmailTo(e.target.value)}
-                                placeholder="you@example.com"
-                                className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
-                            />
-                            <div className="flex gap-2">
-                                <button type="submit" disabled={emailSending}
-                                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors">
-                                    <PaperAirplaneIcon className="h-4 w-4" />
-                                    {emailSending ? 'Sending…' : 'Send'}
+            {/* Month selector */}
+            {months.length > 0 && (
+                <Card>
+                    <CardContent className="py-4">
+                        <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Analyze months</p>
+                            <button onClick={selectAll} className="text-xs font-medium text-brand hover:underline">Select all</button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            {months.map(m => (
+                                <button key={m.month} onClick={() => toggleMonth(m.month)}
+                                    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${isSel(m.month)
+                                        ? 'bg-brand text-white border-brand'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:border-brand/50'}`}>
+                                    {m.label}
                                 </button>
-                                <button type="button" onClick={() => setShowEmail(false)}
-                                    className="p-2 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors">
-                                    <XMarkIcon className="h-4 w-4" />
-                                </button>
-                            </div>
-                        </form>
-                        {emailStatus && (
-                            <p className={`mt-3 text-sm ${emailStatus.ok ? 'text-emerald-600' : 'text-red-600'}`}>
-                                {emailStatus.ok ? '✓ ' : '⚠ '}{emailStatus.msg}
-                            </p>
-                        )}
-                        <p className="mt-2 text-xs text-slate-400">The PDF (tables, charts, recurring spending &amp; AI summary) will be attached.</p>
+                            ))}
+                        </div>
                     </CardContent>
                 </Card>
             )}
 
             {!hasData ? (
                 <Card><CardContent className="py-16 text-center text-slate-400">
-                    No transactions yet. Start logging expenses and your report will appear here.
+                    No transactions in the selected months.
                 </CardContent></Card>
             ) : (
                 <>
-                    {/* Health score + AI summary */}
+                    {/* Health + AI summary */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <Card className="md:col-span-1 flex flex-col items-center justify-center p-8 text-center bg-gradient-to-b from-white to-slate-50">
                             <CardTitle className="text-slate-500 mb-6">Financial Health</CardTitle>
@@ -212,26 +229,18 @@ export default function InsightsPage() {
                                     <span className="text-sm font-medium text-slate-500 uppercase tracking-wider mt-1">{scoreLabel}</span>
                                 </div>
                             </div>
-                            <p className="mt-6 text-xs text-slate-500">
-                                Savings rate {(savingsRate * 100).toFixed(0)}% · Net {inr(t.net)}
-                            </p>
+                            <p className="mt-6 text-xs text-slate-500">Savings rate {(savingsRate * 100).toFixed(0)}% · Net {inr(t.net)}</p>
                         </Card>
 
                         <Card className="md:col-span-2">
                             <CardHeader><CardTitle className="flex items-center gap-2"><SparklesIcon className="h-5 w-5 text-brand" /> AI Summary</CardTitle></CardHeader>
                             <CardContent className="space-y-3">
-                                {analysis.summary?.headline && (
-                                    <p className="text-lg font-bold text-slate-900 leading-snug">{analysis.summary.headline}</p>
-                                )}
-                                {analysis.summary?.paragraphs?.map((p, i) => (
-                                    <p key={i} className="text-sm text-slate-600 leading-relaxed">{p}</p>
-                                ))}
+                                {analysis.summary?.headline && <p className="text-lg font-bold text-slate-900 leading-snug">{analysis.summary.headline}</p>}
+                                {analysis.summary?.paragraphs?.map((p, i) => <p key={i} className="text-sm text-slate-600 leading-relaxed">{p}</p>)}
                                 {analysis.summary?.bullets?.length > 0 && (
                                     <ul className="space-y-2 pt-1">
                                         {analysis.summary.bullets.map((b, i) => (
-                                            <li key={i} className="flex gap-2 text-sm text-slate-700">
-                                                <span className="text-brand mt-0.5">▹</span><span>{b}</span>
-                                            </li>
+                                            <li key={i} className="flex gap-2 text-sm text-slate-700"><span className="text-brand mt-0.5">▹</span><span>{b}</span></li>
                                         ))}
                                     </ul>
                                 )}
@@ -247,28 +256,47 @@ export default function InsightsPage() {
                             { label: 'Net Savings', value: `${t.net >= 0 ? '+' : ''}${inr(t.net)}`, color: t.net >= 0 ? 'text-blue-600' : 'text-orange-600' },
                             { label: 'Avg / Month', value: inr(t.avg_monthly_expense), color: 'text-slate-900' },
                         ].map(k => (
-                            <Card key={k.label}>
-                                <CardContent className="pt-5">
-                                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{k.label}</p>
-                                    <p className={`text-2xl font-bold mt-1 ${k.color}`}>{k.value}</p>
-                                </CardContent>
-                            </Card>
+                            <Card key={k.label}><CardContent className="pt-5">
+                                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{k.label}</p>
+                                <p className={`text-2xl font-bold mt-1 ${k.color}`}>{k.value}</p>
+                            </CardContent></Card>
                         ))}
                     </div>
+
+                    {/* Fixed vs Discretionary */}
+                    <Card>
+                        <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><LockClosedIcon className="h-4 w-4 text-slate-500" /> Committed vs Discretionary</CardTitle></CardHeader>
+                        <CardContent>
+                            <div className="flex h-4 rounded-full overflow-hidden bg-slate-100 mb-3">
+                                <div className="bg-slate-700" style={{ width: `${fv.fixed_pct}%` }} title="Committed" />
+                                <div className="bg-brand" style={{ width: `${fv.variable_pct}%` }} title="Discretionary" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4 text-sm">
+                                <div>
+                                    <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-slate-700" /><span className="font-semibold text-slate-700">Committed / fixed</span></div>
+                                    <p className="text-xl font-bold text-slate-900 mt-1">{inr(fv.fixed_total)} <span className="text-sm font-medium text-slate-400">({fv.fixed_pct}%)</span></p>
+                                    <p className="text-xs text-slate-400 mt-0.5 capitalize">{fv.fixed_categories.join(', ') || 'none detected'}</p>
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-brand" /><span className="font-semibold text-slate-700">Discretionary</span></div>
+                                    <p className="text-xl font-bold text-slate-900 mt-1">{inr(fv.variable_total)} <span className="text-sm font-medium text-slate-400">({fv.variable_pct}%)</span></p>
+                                    <p className="text-xs text-slate-400 mt-0.5 capitalize">{fv.variable_categories.slice(0, 5).join(', ')}</p>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
 
                     {/* Charts */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <Card className="flex flex-col">
-                            <CardHeader><CardTitle>Spending by Category (all-time)</CardTitle></CardHeader>
+                            <CardHeader><CardTitle>Spending by Category</CardTitle></CardHeader>
                             <CardContent className="flex-1">
                                 <ResponsiveContainer width="100%" height={230}>
                                     <PieChart>
-                                        <Pie data={categoryData} cx="50%" cy="50%" innerRadius={55} outerRadius={85}
-                                            paddingAngle={4} dataKey="value" stroke="none">
+                                        <Pie data={categoryData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={4} dataKey="value" stroke="none">
                                             {categoryData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                                         </Pie>
-                                        <RechartsTooltip formatter={(v: any, n: any) => [inr(Number(v)), n]}
-                                            contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                                        <RechartsTooltip formatter={(v: any, n: any) => [inr(Number(v)), n]} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                                     </PieChart>
                                 </ResponsiveContainer>
                                 <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 pt-2">
@@ -289,12 +317,9 @@ export default function InsightsPage() {
                                 <ResponsiveContainer width="100%" height="100%">
                                     <BarChart data={monthData} barCategoryGap="30%">
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                                        <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} dy={6}
-                                            tickFormatter={(v: string) => v.split(' ')[0]} />
-                                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }}
-                                            tickFormatter={v => `₹${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`} />
-                                        <RechartsTooltip formatter={(v: any, n: any) => [inr(Number(v)), n]}
-                                            contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                                        <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} dy={6} tickFormatter={(v: string) => v.split(' ')[0]} />
+                                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} tickFormatter={v => `₹${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`} />
+                                        <RechartsTooltip formatter={(v: any, n: any) => [inr(Number(v)), n]} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                                         <Legend iconType="circle" iconSize={8} formatter={(v) => <span className="text-xs text-slate-600 capitalize">{v}</span>} />
                                         <Bar dataKey="income" name="income" fill="#10b981" radius={[4, 4, 0, 0]} />
                                         <Bar dataKey="expenses" name="expenses" fill="#ef4444" radius={[4, 4, 0, 0]} />
@@ -304,21 +329,57 @@ export default function InsightsPage() {
                         </Card>
                     </div>
 
-                    {/* Recurring transactions */}
+                    {/* Category-by-month comparison (2+ months) */}
+                    {analysis.selected_months.length >= 2 && analysis.category_by_month.length > 0 && (
+                        <Card className="overflow-hidden">
+                            <CardHeader><CardTitle className="text-base">Category by Month</CardTitle>
+                                <p className="text-xs text-slate-500 mt-1">Spend per category across the selected months. ● = committed/fixed cost.</p>
+                            </CardHeader>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-slate-50 border-y border-slate-200">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Category</th>
+                                            {analysis.selected_months.map((mk, i) => (
+                                                <th key={mk} className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">{analysis.selected_labels[i]}</th>
+                                            ))}
+                                            <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Total</th>
+                                            <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Δ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {analysis.category_by_month.slice(0, 16).map((c, i) => (
+                                            <tr key={i} className="border-b border-slate-100 hover:bg-slate-50/60">
+                                                <td className="px-4 py-2.5 font-medium text-slate-800 capitalize">
+                                                    {c.compulsory && <span className="text-slate-400 mr-1">●</span>}{c.category}
+                                                </td>
+                                                {analysis.selected_months.map(mk => (
+                                                    <td key={mk} className="px-4 py-2.5 text-right text-slate-600">{c.per_month[mk] ? inr(c.per_month[mk]) : '—'}</td>
+                                                ))}
+                                                <td className="px-4 py-2.5 text-right font-bold text-slate-900">{inr(c.total)}</td>
+                                                <td className={`px-4 py-2.5 text-right font-medium ${c.delta_first_to_last > 0 ? 'text-red-600' : c.delta_first_to_last < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                                    {c.delta_first_to_last === 0 ? '—' : `${c.delta_first_to_last > 0 ? '+' : ''}${inr(c.delta_first_to_last)}`}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </Card>
+                    )}
+
+                    {/* Recurring */}
                     <Card className="overflow-hidden">
                         <CardHeader>
-                            <CardTitle className="flex items-center gap-2 text-base">
-                                <ArrowTrendingUpIcon className="h-5 w-5 text-brand" />
-                                Recurring &amp; Repeated Spending
-                            </CardTitle>
+                            <CardTitle className="flex items-center gap-2 text-base"><ArrowTrendingUpIcon className="h-5 w-5 text-brand" /> Recurring &amp; Repeated Spending</CardTitle>
                             <p className="text-xs text-slate-500 mt-1">
-                                Items that appear across two or more months — subscriptions, rent, EMIs, and regular buys.
+                                Repeats across months or 3+ times in range. ● = committed/fixed.
                                 {t.recurring_monthly_estimate > 0 && <> Estimated fixed monthly commitment: <strong className="text-slate-700">{inr(t.recurring_monthly_estimate)}</strong>.</>}
                             </p>
                         </CardHeader>
                         <div className="overflow-x-auto">
                             {analysis.recurring.length === 0 ? (
-                                <p className="px-6 py-8 text-center text-slate-400 text-sm">No recurring patterns detected yet — they show up once an item repeats across months.</p>
+                                <p className="px-6 py-8 text-center text-slate-400 text-sm">No recurring patterns in the selected months.</p>
                             ) : (
                                 <table className="w-full text-sm">
                                     <thead className="bg-slate-50 border-y border-slate-200">
@@ -334,11 +395,9 @@ export default function InsightsPage() {
                                     <tbody>
                                         {analysis.recurring.map((r, i) => (
                                             <tr key={i} className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
-                                                <td className="px-4 py-3 font-medium text-slate-800 capitalize">{r.label}</td>
+                                                <td className="px-4 py-3 font-medium text-slate-800 capitalize">{r.compulsory && <span className="text-slate-400 mr-1">●</span>}{r.label}</td>
                                                 <td className="px-4 py-3 text-slate-600 capitalize">{r.category}</td>
-                                                <td className="px-4 py-3">
-                                                    <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-100">{r.cadence}</span>
-                                                </td>
+                                                <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-100">{r.cadence}</span></td>
                                                 <td className="px-4 py-3 text-right text-slate-500">{r.occurrences}× · {r.months_seen}mo</td>
                                                 <td className="px-4 py-3 text-right text-slate-700">{inr(r.avg_amount)}</td>
                                                 <td className="px-4 py-3 text-right font-bold text-slate-900">{inr(r.total_amount)}</td>
@@ -350,6 +409,27 @@ export default function InsightsPage() {
                         </div>
                     </Card>
                 </>
+            )}
+
+            {/* Email panel */}
+            {showEmail && hasData && (
+                <Card className="border-brand/30">
+                    <CardContent className="pt-5">
+                        <form onSubmit={sendEmail} className="flex flex-col sm:flex-row sm:items-center gap-3">
+                            <div className="flex items-center gap-2 text-sm font-medium text-slate-700 shrink-0"><EnvelopeIcon className="h-5 w-5 text-brand" /> Email this report to:</div>
+                            <input type="email" required autoFocus value={emailTo} onChange={e => setEmailTo(e.target.value)} placeholder="you@example.com"
+                                className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
+                            <div className="flex gap-2">
+                                <button type="submit" disabled={emailSending} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors">
+                                    <PaperAirplaneIcon className="h-4 w-4" /> {emailSending ? 'Sending…' : 'Send'}
+                                </button>
+                                <button type="button" onClick={() => setShowEmail(false)} className="p-2 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"><XMarkIcon className="h-4 w-4" /></button>
+                            </div>
+                        </form>
+                        {emailStatus && <p className={`mt-3 text-sm ${emailStatus.ok ? 'text-emerald-600' : 'text-red-600'}`}>{emailStatus.ok ? '✓ ' : '⚠ '}{emailStatus.msg}</p>}
+                        <p className="mt-2 text-xs text-slate-400">The PDF includes the full expense table for the {selCount === months.length ? 'whole history' : 'selected months'}, plus charts &amp; AI summary.</p>
+                    </CardContent>
+                </Card>
             )}
         </div>
     );
